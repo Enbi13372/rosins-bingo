@@ -1,9 +1,9 @@
 /**
  * Rosins Bingo Application Logic - Plain & Strict Ownership Edition
- * Real-Time Multiplayer Sync via PeerJS WebRTC (v1.0.1)
+ * Real-Time Multiplayer Sync via PeerJS WebRTC (v1.0.2)
  */
 
-const APP_VERSION = "1.0.1";
+const APP_VERSION = "1.0.2";
 
 const ROSIN_PRESETS = [
   "Frank meckert über Hygiene",
@@ -58,12 +58,14 @@ const FRANKY_IMAGES = [
   { name: "Frank verführerisch", file: "assets/franky/Frank verführerisch.jpg" }
 ];
 
-// App State
+// Network Shared State (Grid Size and Boards only)
 let state = {
   gridSize: 4,
-  activeUser: "",
   boards: []
 };
+
+// Purely Local Device User Identity (NEVER synced over network)
+let localActiveUser = "";
 
 // UI State for Modal Operations
 let activeBoardId = null;
@@ -73,7 +75,8 @@ let designBoardId = null;
 let selectedBgImage = "";
 let pendingOwnerName = "";
 
-const LOCAL_STORAGE_KEY = "rosins_bingo_state_v3";
+const LOCAL_STORAGE_KEY = "rosins_bingo_shared_state_v4";
+const LOCAL_USER_KEY = "rosins_bingo_local_user_v4";
 
 // Multiplayer PeerJS Variables
 let currentRoomId = "";
@@ -85,11 +88,24 @@ let isApplyingNetworkUpdate = false;
 
 document.addEventListener("DOMContentLoaded", () => {
   initRoomId();
+  loadLocalUser();
   loadState();
   renderApp();
   setupEventListeners();
   initMultiplayerNetwork();
 });
+
+function loadLocalUser() {
+  const savedUser = localStorage.getItem(LOCAL_USER_KEY);
+  if (savedUser) {
+    localActiveUser = savedUser;
+  }
+}
+
+function saveLocalUser(name) {
+  localActiveUser = name;
+  localStorage.setItem(LOCAL_USER_KEY, name);
+}
 
 // Initialize or parse Room ID from URL
 function initRoomId() {
@@ -111,7 +127,6 @@ function initMultiplayerNetwork() {
     return;
   }
 
-  // Cleanup existing peer instance if any
   if (peer) {
     try { peer.destroy(); } catch (e) {}
     peer = null;
@@ -157,7 +172,7 @@ function initMultiplayerNetwork() {
     });
   });
 
-  peer.on("error", (err) => {
+  peer.on("error", () => {
     clearTimeout(checkHostTimeout);
     becomeHost(hostPeerId);
   });
@@ -262,7 +277,6 @@ function loadState() {
 function createDefaultState() {
   state = {
     gridSize: 4,
-    activeUser: "",
     boards: [createBoard(1), createBoard(2)]
   };
   saveState();
@@ -309,9 +323,9 @@ function renderApp() {
   const userBadge = document.getElementById("active-user-badge");
   const userNameEl = document.getElementById("active-user-name");
   
-  if (state.activeUser) {
+  if (localActiveUser) {
     userBadge.classList.remove("hidden");
-    userNameEl.textContent = state.activeUser;
+    userNameEl.textContent = localActiveUser;
   } else {
     userBadge.classList.add("hidden");
   }
@@ -326,7 +340,7 @@ function renderApp() {
 }
 
 function renderBoardCard(board, index) {
-  const isMine = board.playerName && board.playerName === state.activeUser;
+  const isMine = board.playerName && board.playerName === localActiveUser;
   const isClaimed = Boolean(board.playerName);
   const hasBg = Boolean(board.bgImage);
 
@@ -661,9 +675,9 @@ function setupEventListeners() {
       return;
     }
 
-    const currentOwnedBoard = state.boards.find(b => b.id !== claimingBoardId && b.playerName && b.playerName === state.activeUser);
+    const currentOwnedBoard = state.boards.find(b => b.id !== claimingBoardId && b.playerName && b.playerName === localActiveUser);
     if (currentOwnedBoard) {
-      const confirmSwitch = confirm(`Du (${state.activeUser}) besitzt bereits ein Spielfeld. Möchtest du dein altes Spielfeld freigeben, um dieses neue Spielfeld zu übernehmen?`);
+      const confirmSwitch = confirm(`Du (${localActiveUser}) besitzt bereits ein Spielfeld. Möchtest du dein altes Spielfeld freigeben, um dieses neue Spielfeld zu übernehmen?`);
       if (confirmSwitch) {
         currentOwnedBoard.playerName = "";
       } else {
@@ -675,7 +689,7 @@ function setupEventListeners() {
       const board = state.boards.find(b => b.id === claimingBoardId);
       if (board) {
         board.playerName = name;
-        state.activeUser = name;
+        saveLocalUser(name);
         saveState();
         renderApp();
       }
@@ -699,8 +713,7 @@ function setupEventListeners() {
   // Switch to Owner from Warning Modal
   document.getElementById("btn-switch-to-owner").addEventListener("click", () => {
     if (pendingOwnerName) {
-      state.activeUser = pendingOwnerName;
-      saveState();
+      saveLocalUser(pendingOwnerName);
       renderApp();
     }
     closeModal("modal-ownership");
@@ -746,7 +759,7 @@ function handleTileClick(boardId, tileIdx) {
     return;
   }
 
-  if (board.playerName !== state.activeUser) {
+  if (board.playerName !== localActiveUser) {
     pendingOwnerName = board.playerName;
     document.getElementById("ownership-warning-text").textContent = 
       `Dieses Spielfeld gehört "${board.playerName}". Jeder Spieler kann nur 1 Spielfeld besitzen und bearbeiten.`;
@@ -781,7 +794,7 @@ function toggleBoardLock(boardId) {
     return;
   }
 
-  if (board.playerName !== state.activeUser) {
+  if (board.playerName !== localActiveUser) {
     pendingOwnerName = board.playerName;
     document.getElementById("ownership-warning-text").textContent = 
       `Dieses Spielfeld gehört "${board.playerName}". Nur der Besitzer kann das Spielfeld sperren oder entsperren!`;
@@ -862,10 +875,10 @@ function resetMarks(boardId) {
 
 function releaseBoard(boardId) {
   const board = state.boards.find(b => b.id === boardId);
-  if (board && board.playerName === state.activeUser) {
+  if (board && board.playerName === localActiveUser) {
     if (confirm(`Möchtest du dein Spielfeld wirklich freigeben?`)) {
       board.playerName = "";
-      state.activeUser = "";
+      saveLocalUser("");
       saveState();
       renderApp();
     }
@@ -914,8 +927,8 @@ function deleteBoard(boardId) {
 
   if (confirm(confirmMsg)) {
     state.boards = state.boards.filter(b => b.id !== boardId);
-    if (board && board.playerName === state.activeUser) {
-      state.activeUser = state.boards.find(b => b.playerName)?.playerName || "";
+    if (board && board.playerName === localActiveUser) {
+      saveLocalUser("");
     }
     saveState();
     renderApp();
@@ -927,11 +940,11 @@ function openClaimModal(boardId) {
   const board = state.boards.find(b => b.id === boardId);
   const input = document.getElementById("input-player-name");
 
-  const ownedBoard = state.boards.find(b => b.id !== boardId && b.playerName && b.playerName === state.activeUser);
+  const ownedBoard = state.boards.find(b => b.id !== boardId && b.playerName && b.playerName === localActiveUser);
   if (ownedBoard) {
     input.value = "";
   } else {
-    input.value = state.activeUser || (board ? board.playerName : "");
+    input.value = localActiveUser || (board ? board.playerName : "");
   }
 
   openModal("modal-claim");
@@ -951,11 +964,10 @@ function openSwitchUserModal() {
       card.className = "user-switch-card";
       card.innerHTML = `
         <span>${escapeHtml(board.playerName)}</span>
-        ${board.playerName === state.activeUser ? '<span class="owner-indicator is-me">Aktiv</span>' : '<button class="btn btn-sm btn-secondary">Zu Spieler wechseln</button>'}
+        ${board.playerName === localActiveUser ? '<span class="owner-indicator is-me">Aktiv</span>' : '<button class="btn btn-sm btn-secondary">Zu Spieler wechseln</button>'}
       `;
       card.addEventListener("click", () => {
-        state.activeUser = board.playerName;
-        saveState();
+        saveLocalUser(board.playerName);
         renderApp();
         closeModal("modal-switch-user");
       });
