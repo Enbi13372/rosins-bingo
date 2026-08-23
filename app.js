@@ -1,9 +1,9 @@
 /**
  * Rosins Bingo Application Logic - Plain & Strict Ownership Edition
- * Real-Time Multiplayer Sync via PeerJS WebRTC (v1.0.4)
+ * Real-Time Multiplayer Sync via PeerJS WebRTC (v1.0.5)
  */
 
-const APP_VERSION = "1.0.4";
+const APP_VERSION = "1.0.5";
 
 const ROSIN_PRESETS = [
   "Frank meckert über Hygiene",
@@ -74,8 +74,7 @@ let claimingBoardId = null;
 let designBoardId = null;
 let selectedBgImage = "";
 
-const LOCAL_STORAGE_KEY = "rosins_bingo_shared_state_v4";
-const LOCAL_USER_KEY = "rosins_bingo_local_user_v4";
+const LOCAL_USER_KEY = "rosins_bingo_local_user_v5";
 
 // Multiplayer PeerJS Variables
 let currentRoomId = "";
@@ -94,6 +93,10 @@ document.addEventListener("DOMContentLoaded", () => {
   setupEventListeners();
   initMultiplayerNetwork();
 });
+
+function getRoomStorageKey(roomId = currentRoomId) {
+  return "rosins_bingo_room_v5_" + roomId;
+}
 
 function loadLocalUser() {
   const savedUser = localStorage.getItem(LOCAL_USER_KEY);
@@ -266,7 +269,6 @@ function updateRoomStatusText(text, statusClass) {
     statusEl.className = `room-status ${statusClass}`;
   }
 
-  // Update Settings modal help text if not Host
   const helpEl = document.getElementById("settings-host-help");
   const selectGrid = document.getElementById("select-grid-size");
   if (helpEl && selectGrid) {
@@ -282,7 +284,7 @@ function updateRoomStatusText(text, statusClass) {
 
 // Load state from localStorage or create default
 function loadState() {
-  const saved = localStorage.getItem(LOCAL_STORAGE_KEY);
+  const saved = localStorage.getItem(getRoomStorageKey());
   if (saved) {
     try {
       state = JSON.parse(saved);
@@ -308,7 +310,7 @@ function createDefaultState() {
 }
 
 function saveState(shouldBroadcast = true) {
-  localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(state));
+  localStorage.setItem(getRoomStorageKey(), JSON.stringify(state));
 
   if (shouldBroadcast && !isApplyingNetworkUpdate) {
     if (isHost) {
@@ -634,9 +636,32 @@ function setupEventListeners() {
     openModal("modal-join-room");
   });
 
-  // Start Brand New Room Session
+  // Start Brand New Room Session (Always 100% clean & reset state)
   document.getElementById("btn-start-new-room").addEventListener("click", () => {
     const newRoom = "rosin" + Math.random().toString(36).substr(2, 5);
+    
+    // Explicitly initialize clean empty default state for the new room
+    const cleanDefaultState = {
+      gridSize: 4,
+      boards: [
+        {
+          id: "board_" + Date.now() + "_1",
+          playerName: "",
+          isLocked: false,
+          bgImage: "",
+          tiles: Array.from({ length: 16 }, (_, i) => ({ id: i, text: "", marked: false }))
+        },
+        {
+          id: "board_" + Date.now() + "_2",
+          playerName: "",
+          isLocked: false,
+          bgImage: "",
+          tiles: Array.from({ length: 16 }, (_, i) => ({ id: i, text: "", marked: false }))
+        }
+      ]
+    };
+
+    localStorage.setItem(getRoomStorageKey(newRoom), JSON.stringify(cleanDefaultState));
     window.location.href = window.location.protocol + "//" + window.location.host + window.location.pathname + "?room=" + newRoom + "&v=" + APP_VERSION;
   });
 
