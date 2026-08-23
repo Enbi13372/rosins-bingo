@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Rosins Bingo</title>
-  <link rel="stylesheet" href="style.css?v=1.0.3">
+  <link rel="stylesheet" href="style.css?v=1.0.4">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700;800&display=swap" rel="stylesheet">
@@ -26,8 +26,8 @@
         <button id="btn-copy-room" class="btn btn-sm btn-secondary" title="Spiel-Link für Freunde kopieren">
           Link kopieren
         </button>
-        <button id="btn-join-room-modal" class="btn btn-sm btn-secondary" title="Einem anderen Raum beitreten">
-          Raum wechseln
+        <button id="btn-join-room-modal" class="btn btn-sm btn-secondary" title="Einem anderen Raum beitreten oder neue Session starten">
+          Raum / Session
         </button>
       </div>
 
@@ -63,16 +63,27 @@
     </div>
   </main>
 
-  <!-- Join Room Modal -->
+  <!-- Join / Start New Room Session Modal -->
   <div id="modal-join-room" class="modal-overlay hidden">
     <div class="modal-card">
       <div class="modal-header">
-        <h3>Einem Spiel-Raum beitreten</h3>
+        <h3>Spiel-Raum & Session</h3>
         <button class="modal-close" data-close="modal-join-room">&times;</button>
       </div>
       <div class="modal-body">
-        <p>Gib den Raum-Code deiner Freunde ein, um ihrem Live-Spiel beizutreten:</p>
-        <input type="text" id="input-room-code" class="form-input" placeholder="z.B. rosin123" maxlength="30">
+        <div class="setting-group">
+          <label class="setting-label">Neues Spiel starten:</label>
+          <button id="btn-start-new-room" class="btn btn-primary" style="width: 100%; justify-content: center;">
+            Neue Session starten (Host werden)
+          </button>
+        </div>
+        
+        <hr style="border: 0; border-top: 1px solid var(--border-light); margin: 0.5rem 0;">
+
+        <div class="setting-group">
+          <label for="input-room-code" class="setting-label">Oder Raum-Code deiner Freunde beitreten:</label>
+          <input type="text" id="input-room-code" class="form-input" placeholder="z.B. rosin123" maxlength="30">
+        </div>
       </div>
       <div class="modal-footer">
         <button class="btn btn-secondary" data-close="modal-join-room">Abbrechen</button>
@@ -205,9 +216,9 @@
 
   <!-- Footer Version Tag -->
   <footer class="app-footer">
-    <small>Rosins Bingo v1.0.3</small>
+    <small>Rosins Bingo v1.0.4</small>
   </footer>
 
-  <script src="app.js?v=1.0.3"></script>
+  <script src="app.js?v=1.0.4"></script>
 </body>
 </html>

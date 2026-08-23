@@ -1,9 +1,9 @@
 /**
  * Rosins Bingo Application Logic - Plain & Strict Ownership Edition
- * Real-Time Multiplayer Sync via PeerJS WebRTC (v1.0.3)
+ * Real-Time Multiplayer Sync via PeerJS WebRTC (v1.0.4)
  */
 
-const APP_VERSION = "1.0.3";
+const APP_VERSION = "1.0.4";
 
 const ROSIN_PRESETS = [
   "Frank meckert über Hygiene",
@@ -151,7 +151,6 @@ function initMultiplayerNetwork() {
       isHost = false;
       updateRoomStatusText("Live: Verbunden", "connected");
 
-      // Flush any queued mutation if client made a change during connect
       if (pendingMutationState) {
         sendMutationToHost();
         pendingMutationState = null;
@@ -398,7 +397,6 @@ function renderBoardCard(board, index) {
   const lockButtonText = board.isLocked ? "Sperre aufheben" : "Feld sperren";
   const lockButtonClass = board.isLocked ? "btn-secondary" : "btn-primary";
 
-  // Permission check for delete button
   const canDelete = !isClaimed || isMine || isHost;
 
   let html = "";
@@ -636,7 +634,13 @@ function setupEventListeners() {
     openModal("modal-join-room");
   });
 
-  // Confirm Join Room
+  // Start Brand New Room Session
+  document.getElementById("btn-start-new-room").addEventListener("click", () => {
+    const newRoom = "rosin" + Math.random().toString(36).substr(2, 5);
+    window.location.href = window.location.protocol + "//" + window.location.host + window.location.pathname + "?room=" + newRoom + "&v=" + APP_VERSION;
+  });
+
+  // Confirm Join Existing Room
   document.getElementById("btn-confirm-join-room").addEventListener("click", () => {
     const code = document.getElementById("input-room-code").value.trim().toLowerCase().replace(/[^a-z0-9]/g, "");
     if (code) {
@@ -644,7 +648,7 @@ function setupEventListeners() {
     }
   });
 
-  // Add Board (Allowed for anyone)
+  // Add Board
   document.getElementById("btn-add-board").addEventListener("click", () => {
     const newBoard = createBoard(state.boards.length + 1);
     state.boards.push(newBoard);
@@ -956,7 +960,6 @@ function deleteBoard(boardId) {
   const isClaimed = Boolean(board.playerName);
   const isMine = board.playerName === localActiveUser;
 
-  // Permission Check: Deleting claimed boards is restricted to Host or Owner!
   if (isClaimed && !isMine && !isHost) {
     alert(`Nur der Raum-Host oder "${board.playerName}" kann dieses aktive Spielfeld löschen.`);
     return;
