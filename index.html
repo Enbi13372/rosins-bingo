@@ -8,6 +8,8 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <!-- PeerJS for Real-Time Multiplayer WebRTC Sync -->
+  <script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
 </head>
 <body>
 
@@ -17,6 +19,18 @@
       <div class="header-logo-wrapper">
         <img src="assets/rosins-bingo-transparent.png" onerror="this.onerror=null; this.src='rosins-bingo.png';" alt="Rosins Bingo" class="header-logo">
       </div>
+      
+      <!-- Live Room Multiplayer Control Bar -->
+      <div class="room-bar">
+        <span id="room-status" class="room-status">Live: Raum verbinden...</span>
+        <button id="btn-copy-room" class="btn btn-sm btn-secondary" title="Spiel-Link für Freunde kopieren">
+          Link kopieren
+        </button>
+        <button id="btn-join-room-modal" class="btn btn-sm btn-secondary" title="Einem anderen Raum beitreten">
+          Raum wechseln
+        </button>
+      </div>
+
       <div class="header-controls">
         <div id="active-user-badge" class="active-user-badge hidden">
           <span class="active-user-label">Ich bin:</span>
@@ -50,6 +64,24 @@
     </div>
   </main>
 
+  <!-- Join Room Modal -->
+  <div id="modal-join-room" class="modal-overlay hidden">
+    <div class="modal-card">
+      <div class="modal-header">
+        <h3>Einem Spiel-Raum beitreten</h3>
+        <button class="modal-close" data-close="modal-join-room">&times;</button>
+      </div>
+      <div class="modal-body">
+        <p>Gib den Raum-Code deiner Freunde ein, um ihrem Live-Spiel beizutreten:</p>
+        <input type="text" id="input-room-code" class="form-input" placeholder="z.B. rosin-1234" maxlength="30">
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" data-close="modal-join-room">Abbrechen</button>
+        <button id="btn-confirm-join-room" class="btn btn-primary">Raum beitreten</button>
+      </div>
+    </div>
+  </div>
+
   <!-- Claim Board Modal -->
   <div id="modal-claim" class="modal-overlay hidden">
     <div class="modal-card">
@@ -59,7 +91,7 @@
       </div>
       <div class="modal-body">
         <p>Gib deinen Namen ein, um dieses Spielfeld zu beanspruchen. Jeder Spieler kann nur 1 Spielfeld gleichzeitig besitzen!</p>
-        <input type="text" id="input-player-name" class="form-input" placeholder="Dein Name" maxlength="25">
+        <input type="text" id="input-player-name" class="form-input" placeholder="Dein Name (z.B. Niels)" maxlength="25">
       </div>
       <div class="modal-footer">
         <button class="btn btn-secondary" data-close="modal-claim">Abbrechen</button>
