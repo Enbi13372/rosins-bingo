@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Rosins Bingo</title>
-  <link rel="stylesheet" href="style.css?v=1.0.2">
+  <link rel="stylesheet" href="style.css?v=1.0.3">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700;800&display=swap" rel="stylesheet">
@@ -35,7 +35,6 @@
         <div id="active-user-badge" class="active-user-badge hidden">
           <span class="active-user-label">Ich bin:</span>
           <strong id="active-user-name">--</strong>
-          <button id="btn-switch-user" class="btn-link" title="Spieler-Identität wechseln">Wechseln</button>
         </div>
         <button id="btn-settings" class="btn btn-secondary" title="Einstellungen">
           <span class="btn-text">Einstellungen</span>
@@ -100,25 +99,6 @@
     </div>
   </div>
 
-  <!-- Switch User Modal -->
-  <div id="modal-switch-user" class="modal-overlay hidden">
-    <div class="modal-card">
-      <div class="modal-header">
-        <h3>Spieler wechseln</h3>
-        <button class="modal-close" data-close="modal-switch-user">&times;</button>
-      </div>
-      <div class="modal-body">
-        <p>Wähle aus, als welcher Spieler du auf diesem Gerät weiterspielen möchtest:</p>
-        <div id="users-list-container" class="users-list-grid">
-          <!-- Users injected dynamically -->
-        </div>
-      </div>
-      <div class="modal-footer">
-        <button class="btn btn-secondary" data-close="modal-switch-user">Schließen</button>
-      </div>
-    </div>
-  </div>
-
   <!-- Ownership Warning Modal -->
   <div id="modal-ownership" class="modal-overlay hidden">
     <div class="modal-card">
@@ -130,8 +110,7 @@
         <p id="ownership-warning-text">Dieses Spielfeld gehört einem anderen Spieler. Nur der Besitzer kann dieses Bingo-Feld bearbeiten!</p>
       </div>
       <div class="modal-footer">
-        <button class="btn btn-secondary" data-close="modal-ownership">Verstanden</button>
-        <button id="btn-switch-to-owner" class="btn btn-primary">Zu diesem Spieler wechseln</button>
+        <button class="btn btn-primary" data-close="modal-ownership">Verstanden</button>
       </div>
     </div>
   </div>
@@ -171,7 +150,7 @@
             <option value="4" selected>4 x 4 (Standard)</option>
             <option value="5">5 x 5 (Klassisch)</option>
           </select>
-          <small class="setting-help">Raster für alle Spielfelder festlegen.</small>
+          <small id="settings-host-help" class="setting-help">Raster für alle Spielfelder festlegen.</small>
         </div>
       </div>
       <div class="modal-footer">
@@ -226,9 +205,9 @@
 
   <!-- Footer Version Tag -->
   <footer class="app-footer">
-    <small>Rosins Bingo v1.0.2</small>
+    <small>Rosins Bingo v1.0.3</small>
   </footer>
 
-  <script src="app.js?v=1.0.2"></script>
+  <script src="app.js?v=1.0.3"></script>
 </body>
 </html>

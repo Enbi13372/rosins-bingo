@@ -1,9 +1,9 @@
 /**
  * Rosins Bingo Application Logic - Plain & Strict Ownership Edition
- * Real-Time Multiplayer Sync via PeerJS WebRTC (v1.0.2)
+ * Real-Time Multiplayer Sync via PeerJS WebRTC (v1.0.3)
  */
 
-const APP_VERSION = "1.0.2";
+const APP_VERSION = "1.0.3";
 
 const ROSIN_PRESETS = [
   "Frank meckert über Hygiene",
@@ -73,7 +73,6 @@ let activeTileIndex = null;
 let claimingBoardId = null;
 let designBoardId = null;
 let selectedBgImage = "";
-let pendingOwnerName = "";
 
 const LOCAL_STORAGE_KEY = "rosins_bingo_shared_state_v4";
 const LOCAL_USER_KEY = "rosins_bingo_local_user_v4";
@@ -85,6 +84,7 @@ let isHost = false;
 let hostConnection = null;
 let clientConnections = [];
 let isApplyingNetworkUpdate = false;
+let pendingMutationState = null;
 
 document.addEventListener("DOMContentLoaded", () => {
   initRoomId();
@@ -150,6 +150,12 @@ function initMultiplayerNetwork() {
       clearTimeout(checkHostTimeout);
       isHost = false;
       updateRoomStatusText("Live: Verbunden", "connected");
+
+      // Flush any queued mutation if client made a change during connect
+      if (pendingMutationState) {
+        sendMutationToHost();
+        pendingMutationState = null;
+      }
     });
 
     hostConnection.on("data", (data) => {
@@ -194,6 +200,11 @@ function becomeHost(hostPeerId) {
   peer.on("open", () => {
     updateRoomStatusText(`Live: Host (${1} Spieler)`, "connected");
     setupHostPeerListeners();
+
+    if (pendingMutationState) {
+      broadcastStateToClients();
+      pendingMutationState = null;
+    }
   });
 
   peer.on("error", (err) => {
@@ -244,6 +255,8 @@ function broadcastStateToClients() {
 function sendMutationToHost() {
   if (hostConnection && hostConnection.open) {
     hostConnection.send({ type: "MUTATE_STATE", state: state });
+  } else {
+    pendingMutationState = state;
   }
 }
 
@@ -252,6 +265,19 @@ function updateRoomStatusText(text, statusClass) {
   if (statusEl) {
     statusEl.textContent = text;
     statusEl.className = `room-status ${statusClass}`;
+  }
+
+  // Update Settings modal help text if not Host
+  const helpEl = document.getElementById("settings-host-help");
+  const selectGrid = document.getElementById("select-grid-size");
+  if (helpEl && selectGrid) {
+    if (!isHost) {
+      helpEl.textContent = "Nur der Raum-Host kann die Raster-Größe ändern.";
+      selectGrid.disabled = true;
+    } else {
+      helpEl.textContent = "Raster für alle Spielfelder festlegen.";
+      selectGrid.disabled = false;
+    }
   }
 }
 
@@ -325,7 +351,7 @@ function renderApp() {
   
   if (localActiveUser) {
     userBadge.classList.remove("hidden");
-    userNameEl.textContent = localActiveUser;
+    userNameEl.textContent = localActiveUser + (isHost ? " (Host)" : "");
   } else {
     userBadge.classList.add("hidden");
   }
@@ -372,6 +398,9 @@ function renderBoardCard(board, index) {
   const lockButtonText = board.isLocked ? "Sperre aufheben" : "Feld sperren";
   const lockButtonClass = board.isLocked ? "btn-secondary" : "btn-primary";
 
+  // Permission check for delete button
+  const canDelete = !isClaimed || isMine || isHost;
+
   let html = "";
 
   if (board.bgImage) {
@@ -404,9 +433,11 @@ function renderBoardCard(board, index) {
             ${lockButtonText}
           </button>
         ` : ''}
-        <button class="btn btn-sm btn-icon-only btn-delete-board" data-action="delete-board" data-id="${board.id}" title="Spielfeld löschen">
-          &times;
-        </button>
+        ${canDelete ? `
+          <button class="btn btn-sm btn-icon-only btn-delete-board" data-action="delete-board" data-id="${board.id}" title="Spielfeld löschen">
+            &times;
+          </button>
+        ` : ''}
       </div>
     </div>
   `;
@@ -613,12 +644,7 @@ function setupEventListeners() {
     }
   });
 
-  // Header User Switch
-  document.getElementById("btn-switch-user").addEventListener("click", () => {
-    openSwitchUserModal();
-  });
-
-  // Add Board
+  // Add Board (Allowed for anyone)
   document.getElementById("btn-add-board").addEventListener("click", () => {
     const newBoard = createBoard(state.boards.length + 1);
     state.boards.push(newBoard);
@@ -632,6 +658,11 @@ function setupEventListeners() {
   });
 
   document.getElementById("select-grid-size").addEventListener("change", (e) => {
+    if (!isHost) {
+      alert("Nur der Raum-Host kann die Raster-Größe ändern.");
+      renderApp();
+      return;
+    }
     const newSize = parseInt(e.target.value, 10);
     if (newSize !== state.gridSize) {
       state.gridSize = newSize;
@@ -648,12 +679,21 @@ function setupEventListeners() {
     }
   });
 
-  // Reset
+  // Reset (Host-Only Permission)
   document.getElementById("btn-reset").addEventListener("click", () => {
+    if (!isHost) {
+      alert("Nur der Raum-Host kann das gesamte Spiel zurücksetzen.");
+      return;
+    }
     openModal("modal-reset");
   });
 
   document.getElementById("btn-confirm-reset").addEventListener("click", () => {
+    if (!isHost) {
+      alert("Nur der Raum-Host kann das gesamte Spiel zurücksetzen.");
+      closeModal("modal-reset");
+      return;
+    }
     createDefaultState();
     closeModal("modal-reset");
     renderApp();
@@ -710,15 +750,6 @@ function setupEventListeners() {
     closeModal("modal-board-design");
   });
 
-  // Switch to Owner from Warning Modal
-  document.getElementById("btn-switch-to-owner").addEventListener("click", () => {
-    if (pendingOwnerName) {
-      saveLocalUser(pendingOwnerName);
-      renderApp();
-    }
-    closeModal("modal-ownership");
-  });
-
   // Save Tile
   document.getElementById("btn-save-tile").addEventListener("click", () => {
     saveTileEdit();
@@ -759,10 +790,10 @@ function handleTileClick(boardId, tileIdx) {
     return;
   }
 
+  // Strict Ownership: Only the claimed owner can edit or mark!
   if (board.playerName !== localActiveUser) {
-    pendingOwnerName = board.playerName;
     document.getElementById("ownership-warning-text").textContent = 
-      `Dieses Spielfeld gehört "${board.playerName}". Jeder Spieler kann nur 1 Spielfeld besitzen und bearbeiten.`;
+      `Dieses Spielfeld gehört "${board.playerName}". Nur der Besitzer kann dieses Bingo-Feld bearbeiten oder abkreuzen!`;
     openModal("modal-ownership");
     return;
   }
@@ -770,7 +801,7 @@ function handleTileClick(boardId, tileIdx) {
   if (board.isLocked) {
     if (board.tiles[tileIdx]) {
       board.tiles[tileIdx].marked = !board.tiles[tileIdx].marked;
-      saveState();
+      saveState(true);
       renderApp();
     }
   } else {
@@ -795,7 +826,6 @@ function toggleBoardLock(boardId) {
   }
 
   if (board.playerName !== localActiveUser) {
-    pendingOwnerName = board.playerName;
     document.getElementById("ownership-warning-text").textContent = 
       `Dieses Spielfeld gehört "${board.playerName}". Nur der Besitzer kann das Spielfeld sperren oder entsperren!`;
     openModal("modal-ownership");
@@ -921,13 +951,24 @@ function deleteBoard(boardId) {
   }
   
   const board = state.boards.find(b => b.id === boardId);
-  const confirmMsg = board && board.playerName 
+  if (!board) return;
+
+  const isClaimed = Boolean(board.playerName);
+  const isMine = board.playerName === localActiveUser;
+
+  // Permission Check: Deleting claimed boards is restricted to Host or Owner!
+  if (isClaimed && !isMine && !isHost) {
+    alert(`Nur der Raum-Host oder "${board.playerName}" kann dieses aktive Spielfeld löschen.`);
+    return;
+  }
+
+  const confirmMsg = isClaimed 
     ? `Möchtest du das Spielfeld von "${board.playerName}" wirklich löschen?`
-    : "Möchtest du dieses Spielfeld wirklich löschen?";
+    : "Möchtest du dieses leere Spielfeld wirklich löschen?";
 
   if (confirm(confirmMsg)) {
     state.boards = state.boards.filter(b => b.id !== boardId);
-    if (board && board.playerName === localActiveUser) {
+    if (isMine) {
       saveLocalUser("");
     }
     saveState();
@@ -949,33 +990,6 @@ function openClaimModal(boardId) {
 
   openModal("modal-claim");
   setTimeout(() => input.focus(), 100);
-}
-
-function openSwitchUserModal() {
-  const container = document.getElementById("users-list-container");
-  container.innerHTML = "";
-
-  const claimedBoards = state.boards.filter(b => b.playerName);
-  if (claimedBoards.length === 0) {
-    container.innerHTML = "<p>Bisher wurden noch keine Spielfelder übernommen.</p>";
-  } else {
-    claimedBoards.forEach(board => {
-      const card = document.createElement("div");
-      card.className = "user-switch-card";
-      card.innerHTML = `
-        <span>${escapeHtml(board.playerName)}</span>
-        ${board.playerName === localActiveUser ? '<span class="owner-indicator is-me">Aktiv</span>' : '<button class="btn btn-sm btn-secondary">Zu Spieler wechseln</button>'}
-      `;
-      card.addEventListener("click", () => {
-        saveLocalUser(board.playerName);
-        renderApp();
-        closeModal("modal-switch-user");
-      });
-      container.appendChild(card);
-    });
-  }
-
-  openModal("modal-switch-user");
 }
 
 function openModal(modalId) {
