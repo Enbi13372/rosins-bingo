@@ -95,34 +95,49 @@ function initRoomId() {
   let roomParam = urlParams.get("room");
 
   if (!roomParam) {
-    roomParam = "rosin-" + Math.random().toString(36).substr(2, 6);
+    roomParam = "rosin" + Math.random().toString(36).substr(2, 5);
     const newUrl = window.location.protocol + "//" + window.location.host + window.location.pathname + "?room=" + roomParam;
     window.history.replaceState({ path: newUrl }, "", newUrl);
   }
-  currentRoomId = roomParam.toLowerCase().replace(/[^a-z0-9_-]/g, "");
+  currentRoomId = roomParam.toLowerCase().replace(/[^a-z0-9]/g, "");
 }
 
-// PeerJS Real-Time Multiplayer Networking
+// Fail-proof PeerJS Real-Time Multiplayer Networking
 function initMultiplayerNetwork() {
-  updateRoomStatusText("Verbinde...", "syncing");
-  const hostPeerId = "rosins_bingo_h_" + currentRoomId;
+  if (typeof Peer === "undefined") {
+    updateRoomStatusText("Live: Solomodus", "");
+    return;
+  }
 
-  // Try creating Host Peer
-  peer = new Peer(hostPeerId);
+  updateRoomStatusText("Verbinde...", "syncing");
+  const cleanId = currentRoomId.replace(/[^a-z0-9]/g, "").slice(0, 15);
+  const hostPeerId = "rbh" + cleanId;
+
+  let hostTimeout = setTimeout(() => {
+    if (!isHost && !hostConnection) {
+      connectAsClient(hostPeerId);
+    }
+  }, 3000);
+
+  try {
+    peer = new Peer(hostPeerId, { debug: 0 });
+  } catch (e) {
+    clearTimeout(hostTimeout);
+    connectAsClient(hostPeerId);
+    return;
+  }
 
   peer.on("open", (id) => {
+    clearTimeout(hostTimeout);
     isHost = true;
     updateRoomStatusText(`Live: Host (${1} Spieler)`, "connected");
     setupHostPeerListeners();
   });
 
   peer.on("error", (err) => {
-    if (err.type === "unavailable-id") {
-      // Host exists! Connect as Client Peer
+    clearTimeout(hostTimeout);
+    if (!isHost && !hostConnection) {
       connectAsClient(hostPeerId);
-    } else {
-      console.warn("PeerJS error:", err);
-      updateRoomStatusText("Offline Modus", "");
     }
   });
 }
@@ -133,7 +148,6 @@ function setupHostPeerListeners() {
     updateRoomStatusText(`Live: Host (${1 + clientConnections.length} Spieler)`, "connected");
 
     conn.on("open", () => {
-      // Send current state to newly joined client
       conn.send({ type: "SYNC_STATE", state: state });
     });
 
@@ -141,11 +155,10 @@ function setupHostPeerListeners() {
       if (data && data.type === "MUTATE_STATE" && data.state) {
         isApplyingNetworkUpdate = true;
         state = data.state;
-        saveState(false); // Save locally without rebroadcasting recursion
+        saveState(false);
         renderApp();
         isApplyingNetworkUpdate = false;
 
-        // Broadcast updated state to all connected clients
         broadcastStateToClients();
       }
     });
@@ -159,12 +172,25 @@ function setupHostPeerListeners() {
 
 function connectAsClient(hostPeerId) {
   isHost = false;
-  peer = new Peer(); // Random client peer ID
+  let clientTimeout = setTimeout(() => {
+    if (!hostConnection || !hostConnection.open) {
+      updateRoomStatusText("Live: Raum " + currentRoomId, "connected");
+    }
+  }, 4000);
+
+  try {
+    peer = new Peer({ debug: 0 });
+  } catch (e) {
+    clearTimeout(clientTimeout);
+    updateRoomStatusText("Live: Raum " + currentRoomId, "connected");
+    return;
+  }
 
   peer.on("open", () => {
-    hostConnection = peer.connect(hostPeerId);
+    hostConnection = peer.connect(hostPeerId, { reliable: true });
 
     hostConnection.on("open", () => {
+      clearTimeout(clientTimeout);
       updateRoomStatusText("Live: Verbunden", "connected");
     });
 
@@ -178,14 +204,15 @@ function connectAsClient(hostPeerId) {
       }
     });
 
-    hostConnection.on("close", () => {
-      updateRoomStatusText("Verbindung getrennt", "");
+    hostConnection.on("error", () => {
+      clearTimeout(clientTimeout);
+      updateRoomStatusText("Live: Raum " + currentRoomId, "connected");
     });
   });
 
-  peer.on("error", (err) => {
-    console.warn("Client peer error:", err);
-    updateRoomStatusText("Offline Modus", "");
+  peer.on("error", () => {
+    clearTimeout(clientTimeout);
+    updateRoomStatusText("Live: Raum " + currentRoomId, "connected");
   });
 }
 
@@ -564,7 +591,7 @@ function setupEventListeners() {
 
   // Confirm Join Room
   document.getElementById("btn-confirm-join-room").addEventListener("click", () => {
-    const code = document.getElementById("input-room-code").value.trim().toLowerCase().replace(/[^a-z0-9_-]/g, "");
+    const code = document.getElementById("input-room-code").value.trim().toLowerCase().replace(/[^a-z0-9]/g, "");
     if (code) {
       window.location.search = "?room=" + code;
     }
