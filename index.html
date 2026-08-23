@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Rosins Bingo</title>
-  <link rel="stylesheet" href="style.css">
+  <link rel="stylesheet" href="style.css?v=1.0.1">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700;800&display=swap" rel="stylesheet">
@@ -73,7 +73,7 @@
       </div>
       <div class="modal-body">
         <p>Gib den Raum-Code deiner Freunde ein, um ihrem Live-Spiel beizutreten:</p>
-        <input type="text" id="input-room-code" class="form-input" placeholder="z.B. rosin-1234" maxlength="30">
+        <input type="text" id="input-room-code" class="form-input" placeholder="z.B. rosin123" maxlength="30">
       </div>
       <div class="modal-footer">
         <button class="btn btn-secondary" data-close="modal-join-room">Abbrechen</button>
@@ -224,6 +224,11 @@
     </div>
   </div>
 
-  <script src="app.js"></script>
+  <!-- Footer Version Tag -->
+  <footer class="app-footer">
+    <small>Rosins Bingo v1.0.1</small>
+  </footer>
+
+  <script src="app.js?v=1.0.1"></script>
 </body>
 </html>

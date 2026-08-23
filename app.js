@@ -1,7 +1,9 @@
 /**
  * Rosins Bingo Application Logic - Plain & Strict Ownership Edition
- * Real-Time Multiplayer Sync via PeerJS WebRTC
+ * Real-Time Multiplayer Sync via PeerJS WebRTC (v1.0.1)
  */
+
+const APP_VERSION = "1.0.1";
 
 const ROSIN_PRESETS = [
   "Frank meckert über Hygiene",
@@ -96,7 +98,7 @@ function initRoomId() {
 
   if (!roomParam) {
     roomParam = "rosin" + Math.random().toString(36).substr(2, 5);
-    const newUrl = window.location.protocol + "//" + window.location.host + window.location.pathname + "?room=" + roomParam;
+    const newUrl = window.location.protocol + "//" + window.location.host + window.location.pathname + "?room=" + roomParam + "&v=" + APP_VERSION;
     window.history.replaceState({ path: newUrl }, "", newUrl);
   }
   currentRoomId = roomParam.toLowerCase().replace(/[^a-z0-9]/g, "");
@@ -109,35 +111,81 @@ function initMultiplayerNetwork() {
     return;
   }
 
+  // Cleanup existing peer instance if any
+  if (peer) {
+    try { peer.destroy(); } catch (e) {}
+    peer = null;
+  }
+
   updateRoomStatusText("Verbinde...", "syncing");
   const cleanId = currentRoomId.replace(/[^a-z0-9]/g, "").slice(0, 15);
   const hostPeerId = "rbh" + cleanId;
 
-  let hostTimeout = setTimeout(() => {
-    if (!isHost && !hostConnection) {
-      connectAsClient(hostPeerId);
-    }
-  }, 3000);
+  // Step 1: Connect as Client first to see if Host is active
+  peer = new Peer({ debug: 0 });
 
-  try {
-    peer = new Peer(hostPeerId, { debug: 0 });
-  } catch (e) {
-    clearTimeout(hostTimeout);
-    connectAsClient(hostPeerId);
-    return;
+  let checkHostTimeout = setTimeout(() => {
+    becomeHost(hostPeerId);
+  }, 1800);
+
+  peer.on("open", () => {
+    hostConnection = peer.connect(hostPeerId, { reliable: true });
+
+    hostConnection.on("open", () => {
+      clearTimeout(checkHostTimeout);
+      isHost = false;
+      updateRoomStatusText("Live: Verbunden", "connected");
+    });
+
+    hostConnection.on("data", (data) => {
+      if (data && data.type === "SYNC_STATE" && data.state) {
+        isApplyingNetworkUpdate = true;
+        state = data.state;
+        saveState(false);
+        renderApp();
+        isApplyingNetworkUpdate = false;
+      }
+    });
+
+    hostConnection.on("error", () => {
+      clearTimeout(checkHostTimeout);
+      becomeHost(hostPeerId);
+    });
+
+    hostConnection.on("close", () => {
+      updateRoomStatusText("Verbindung getrennt", "");
+    });
+  });
+
+  peer.on("error", (err) => {
+    clearTimeout(checkHostTimeout);
+    becomeHost(hostPeerId);
+  });
+}
+
+function becomeHost(hostPeerId) {
+  if (isHost && peer && peer.id === hostPeerId) return;
+
+  if (peer) {
+    try { peer.destroy(); } catch (e) {}
+    peer = null;
   }
 
-  peer.on("open", (id) => {
-    clearTimeout(hostTimeout);
-    isHost = true;
+  isHost = true;
+  clientConnections = [];
+
+  peer = new Peer(hostPeerId, { debug: 0 });
+
+  peer.on("open", () => {
     updateRoomStatusText(`Live: Host (${1} Spieler)`, "connected");
     setupHostPeerListeners();
   });
 
   peer.on("error", (err) => {
-    clearTimeout(hostTimeout);
-    if (!isHost && !hostConnection) {
-      connectAsClient(hostPeerId);
+    if (err.type === "unavailable-id") {
+      setTimeout(() => initMultiplayerNetwork(), 500);
+    } else {
+      updateRoomStatusText("Live: Solomodus", "");
     }
   });
 }
@@ -167,52 +215,6 @@ function setupHostPeerListeners() {
       clientConnections = clientConnections.filter(c => c !== conn);
       updateRoomStatusText(`Live: Host (${1 + clientConnections.length} Spieler)`, "connected");
     });
-  });
-}
-
-function connectAsClient(hostPeerId) {
-  isHost = false;
-  let clientTimeout = setTimeout(() => {
-    if (!hostConnection || !hostConnection.open) {
-      updateRoomStatusText("Live: Raum " + currentRoomId, "connected");
-    }
-  }, 4000);
-
-  try {
-    peer = new Peer({ debug: 0 });
-  } catch (e) {
-    clearTimeout(clientTimeout);
-    updateRoomStatusText("Live: Raum " + currentRoomId, "connected");
-    return;
-  }
-
-  peer.on("open", () => {
-    hostConnection = peer.connect(hostPeerId, { reliable: true });
-
-    hostConnection.on("open", () => {
-      clearTimeout(clientTimeout);
-      updateRoomStatusText("Live: Verbunden", "connected");
-    });
-
-    hostConnection.on("data", (data) => {
-      if (data && data.type === "SYNC_STATE" && data.state) {
-        isApplyingNetworkUpdate = true;
-        state = data.state;
-        saveState(false);
-        renderApp();
-        isApplyingNetworkUpdate = false;
-      }
-    });
-
-    hostConnection.on("error", () => {
-      clearTimeout(clientTimeout);
-      updateRoomStatusText("Live: Raum " + currentRoomId, "connected");
-    });
-  });
-
-  peer.on("error", () => {
-    clearTimeout(clientTimeout);
-    updateRoomStatusText("Live: Raum " + currentRoomId, "connected");
   });
 }
 
@@ -575,7 +577,7 @@ function setupEventListeners() {
 
   // Copy Room Share Link
   document.getElementById("btn-copy-room").addEventListener("click", () => {
-    const shareUrl = window.location.href;
+    const shareUrl = window.location.protocol + "//" + window.location.host + window.location.pathname + "?room=" + currentRoomId + "&v=" + APP_VERSION;
     navigator.clipboard.writeText(shareUrl).then(() => {
       alert("Spiel-Link in die Zwischenablage kopiert! Sende den Link deinen Freunden.");
     }).catch(err => {
@@ -593,7 +595,7 @@ function setupEventListeners() {
   document.getElementById("btn-confirm-join-room").addEventListener("click", () => {
     const code = document.getElementById("input-room-code").value.trim().toLowerCase().replace(/[^a-z0-9]/g, "");
     if (code) {
-      window.location.search = "?room=" + code;
+      window.location.href = window.location.protocol + "//" + window.location.host + window.location.pathname + "?room=" + code + "&v=" + APP_VERSION;
     }
   });
 

@@ -383,7 +383,7 @@ body {
   z-index: 1;
 }
 
-/* Bingo Tile */
+/* Bingo Tile - Standard Style */
 .bingo-tile {
   aspect-ratio: 1 / 1;
   background-color: var(--bg-tile);
@@ -726,7 +726,6 @@ body {
   font-size: 0.8rem;
 }
 
-/* Presets Grid */
 .presets-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(170px, 1fr));
@@ -750,6 +749,17 @@ body {
 .preset-chip:hover {
   background: #0f172a;
   color: #ffffff;
+}
+
+/* Footer */
+.app-footer {
+  text-align: center;
+  padding: 1rem;
+  color: var(--text-muted);
+  font-size: 0.75rem;
+  border-top: 1px solid var(--border-light);
+  margin-top: auto;
+  background: #ffffff;
 }
 
 /* Responsive */
