@@ -1,9 +1,10 @@
 /**
  * Rosins Bingo Application Logic - Plain & Strict Ownership Edition
- * Real-Time Multiplayer Sync via PeerJS WebRTC (v1.0.5)
+ * Real-Time Multiplayer Sync via PeerJS WebRTC (v1.0.6)
+ * New in v1.0.6: Confetti on Bingo, Live Scoreboard, Dark Mode, Download Board as Image
  */
 
-const APP_VERSION = "1.0.5";
+const APP_VERSION = "1.0.6";
 
 const ROSIN_PRESETS = [
   "Frank meckert über Hygiene",
@@ -32,7 +33,6 @@ const ROSIN_PRESETS = [
   "Gäste beschweren sich"
 ];
 
-// Available Franky background images in assets/franky/
 const FRANKY_IMAGES = [
   { name: "Frank bond", file: "assets/franky/Frank bond.webp" },
   { name: "Frank entsetzt", file: "assets/franky/Frank entsetzt.jpg" },
@@ -58,25 +58,17 @@ const FRANKY_IMAGES = [
   { name: "Frank verführerisch", file: "assets/franky/Frank verführerisch.jpg" }
 ];
 
-// Network Shared State (Grid Size and Boards only)
-let state = {
-  gridSize: 4,
-  boards: []
-};
+// Shared network state
+let state = { gridSize: 4, boards: [] };
 
-// Purely Local Device User Identity (NEVER synced over network)
+// Local-only device state
 let localActiveUser = "";
-
-// UI State for Modal Operations
-let activeBoardId = null;
-let activeTileIndex = null;
-let claimingBoardId = null;
-let designBoardId = null;
-let selectedBgImage = "";
+let previousBingoBoards = new Set(); // Track which boards already had bingo to avoid repeat confetti
 
 const LOCAL_USER_KEY = "rosins_bingo_local_user_v5";
+const DARK_MODE_KEY = "rosins_bingo_dark_mode";
 
-// Multiplayer PeerJS Variables
+// Multiplayer PeerJS state
 let currentRoomId = "";
 let peer = null;
 let isHost = false;
@@ -85,24 +77,160 @@ let clientConnections = [];
 let isApplyingNetworkUpdate = false;
 let pendingMutationState = null;
 
+// Modal state
+let activeBoardId = null;
+let activeTileIndex = null;
+let claimingBoardId = null;
+let designBoardId = null;
+let selectedBgImage = "";
+
 document.addEventListener("DOMContentLoaded", () => {
   initRoomId();
   loadLocalUser();
+  loadDarkMode();
   loadState();
   renderApp();
   setupEventListeners();
   initMultiplayerNetwork();
 });
 
+// ── Dark Mode ────────────────────────────────────────────────────────────────
+
+function loadDarkMode() {
+  const saved = localStorage.getItem(DARK_MODE_KEY);
+  if (saved === "dark") {
+    document.documentElement.setAttribute("data-theme", "dark");
+    document.getElementById("btn-dark-mode").textContent = "Hell";
+  }
+}
+
+function toggleDarkMode() {
+  const isDark = document.documentElement.getAttribute("data-theme") === "dark";
+  const next = isDark ? "light" : "dark";
+  document.documentElement.setAttribute("data-theme", next);
+  localStorage.setItem(DARK_MODE_KEY, next);
+  document.getElementById("btn-dark-mode").textContent = next === "dark" ? "Hell" : "Dunkel";
+}
+
+// ── Scoreboard ───────────────────────────────────────────────────────────────
+
+function renderScoreboard() {
+  const container = document.getElementById("scoreboard-content");
+  container.innerHTML = "";
+
+  const claimed = state.boards.filter(b => b.playerName);
+
+  if (claimed.length === 0) {
+    container.innerHTML = `<p class="scoreboard-empty">Noch keine Spieler aktiv.</p>`;
+    return;
+  }
+
+  // Sort: most bingos first, then most marked
+  const rows = claimed.map(board => {
+    const result = checkBingo(board);
+    const marked = board.tiles.filter(t => t.marked).length;
+    const total = board.tiles.length;
+    return { board, hasBingo: result.hasBingo, marked, total };
+  }).sort((a, b) => {
+    if (b.hasBingo !== a.hasBingo) return b.hasBingo ? 1 : -1;
+    return b.marked - a.marked;
+  });
+
+  rows.forEach(({ board, hasBingo, marked, total }) => {
+    const isMe = board.playerName === localActiveUser;
+    const row = document.createElement("div");
+    row.className = "scoreboard-row";
+    row.innerHTML = `
+      <span class="scoreboard-name ${isMe ? "is-me" : ""}">${escapeHtml(board.playerName)}</span>
+      <div class="scoreboard-stats">
+        <div class="scoreboard-stat">
+          <strong>${hasBingo ? "JA" : "–"}</strong>
+          <span>Bingo</span>
+        </div>
+        <div class="scoreboard-stat">
+          <strong>${marked}</strong>
+          <span>Markiert</span>
+        </div>
+        <div class="scoreboard-stat">
+          <strong>${total - marked}</strong>
+          <span>Offen</span>
+        </div>
+      </div>
+    `;
+    container.appendChild(row);
+  });
+}
+
+// ── Confetti on Bingo ────────────────────────────────────────────────────────
+
+function checkAndFireConfetti() {
+  state.boards.forEach(board => {
+    if (!board.playerName) return;
+    const result = checkBingo(board);
+    if (result.hasBingo && !previousBingoBoards.has(board.id)) {
+      previousBingoBoards.add(board.id);
+      if (typeof confetti !== "undefined") {
+        confetti({
+          particleCount: 200,
+          spread: 80,
+          origin: { y: 0.6 },
+          colors: ["#dc2626", "#ffffff", "#0f172a", "#fbbf24"]
+        });
+        // Second burst for extra fun
+        setTimeout(() => {
+          confetti({ particleCount: 120, spread: 100, origin: { x: 0.2, y: 0.5 } });
+          confetti({ particleCount: 120, spread: 100, origin: { x: 0.8, y: 0.5 } });
+        }, 400);
+      }
+    }
+    // Reset confetti tracking if bingo is cleared (new round)
+    if (!result.hasBingo && previousBingoBoards.has(board.id)) {
+      previousBingoBoards.delete(board.id);
+    }
+  });
+}
+
+// ── Download Board as Image ──────────────────────────────────────────────────
+
+function downloadBoardAsImage(boardId) {
+  const cards = document.querySelectorAll(".bingo-board-card");
+  let targetCard = null;
+  cards.forEach(card => {
+    if (card.dataset.boardId === boardId) targetCard = card;
+  });
+
+  if (!targetCard || typeof html2canvas === "undefined") {
+    alert("Download nicht verfügbar.");
+    return;
+  }
+
+  const board = state.boards.find(b => b.id === boardId);
+  const playerName = board ? board.playerName || "Bingo" : "Bingo";
+
+  html2canvas(targetCard, {
+    scale: 2,
+    useCORS: true,
+    backgroundColor: document.documentElement.getAttribute("data-theme") === "dark" ? "#1e293b" : "#ffffff"
+  }).then(canvas => {
+    const link = document.createElement("a");
+    link.download = `rosins-bingo-${playerName}.png`;
+    link.href = canvas.toDataURL("image/png");
+    link.click();
+  }).catch(err => {
+    console.error("Download fehlgeschlagen:", err);
+    alert("Download fehlgeschlagen. Bitte versuche es erneut.");
+  });
+}
+
+// ── Room ID ──────────────────────────────────────────────────────────────────
+
 function getRoomStorageKey(roomId = currentRoomId) {
   return "rosins_bingo_room_v5_" + roomId;
 }
 
 function loadLocalUser() {
-  const savedUser = localStorage.getItem(LOCAL_USER_KEY);
-  if (savedUser) {
-    localActiveUser = savedUser;
-  }
+  const saved = localStorage.getItem(LOCAL_USER_KEY);
+  if (saved) localActiveUser = saved;
 }
 
 function saveLocalUser(name) {
@@ -110,41 +238,30 @@ function saveLocalUser(name) {
   localStorage.setItem(LOCAL_USER_KEY, name);
 }
 
-// Initialize or parse Room ID from URL
 function initRoomId() {
   const urlParams = new URLSearchParams(window.location.search);
   let roomParam = urlParams.get("room");
-
   if (!roomParam) {
     roomParam = "rosin" + Math.random().toString(36).substr(2, 5);
-    const newUrl = window.location.protocol + "//" + window.location.host + window.location.pathname + "?room=" + roomParam + "&v=" + APP_VERSION;
+    const newUrl = `${location.protocol}//${location.host}${location.pathname}?room=${roomParam}&v=${APP_VERSION}`;
     window.history.replaceState({ path: newUrl }, "", newUrl);
   }
   currentRoomId = roomParam.toLowerCase().replace(/[^a-z0-9]/g, "");
 }
 
-// Fail-proof PeerJS Real-Time Multiplayer Networking
-function initMultiplayerNetwork() {
-  if (typeof Peer === "undefined") {
-    updateRoomStatusText("Live: Solomodus", "");
-    return;
-  }
+// ── PeerJS Networking ────────────────────────────────────────────────────────
 
-  if (peer) {
-    try { peer.destroy(); } catch (e) {}
-    peer = null;
-  }
+function initMultiplayerNetwork() {
+  if (typeof Peer === "undefined") { updateRoomStatusText("Live: Solomodus", ""); return; }
+  if (peer) { try { peer.destroy(); } catch (e) {} peer = null; }
 
   updateRoomStatusText("Verbinde...", "syncing");
   const cleanId = currentRoomId.replace(/[^a-z0-9]/g, "").slice(0, 15);
   const hostPeerId = "rbh" + cleanId;
 
-  // Step 1: Connect as Client first to see if Host is active
   peer = new Peer({ debug: 0 });
 
-  let checkHostTimeout = setTimeout(() => {
-    becomeHost(hostPeerId);
-  }, 1800);
+  let checkHostTimeout = setTimeout(() => becomeHost(hostPeerId), 1800);
 
   peer.on("open", () => {
     hostConnection = peer.connect(hostPeerId, { reliable: true });
@@ -153,11 +270,7 @@ function initMultiplayerNetwork() {
       clearTimeout(checkHostTimeout);
       isHost = false;
       updateRoomStatusText("Live: Verbunden", "connected");
-
-      if (pendingMutationState) {
-        sendMutationToHost();
-        pendingMutationState = null;
-      }
+      if (pendingMutationState) { sendMutationToHost(); pendingMutationState = null; }
     });
 
     hostConnection.on("data", (data) => {
@@ -166,55 +279,35 @@ function initMultiplayerNetwork() {
         state = data.state;
         saveState(false);
         renderApp();
+        checkAndFireConfetti();
         isApplyingNetworkUpdate = false;
       }
     });
 
-    hostConnection.on("error", () => {
-      clearTimeout(checkHostTimeout);
-      becomeHost(hostPeerId);
-    });
-
-    hostConnection.on("close", () => {
-      updateRoomStatusText("Verbindung getrennt", "");
-    });
+    hostConnection.on("error", () => { clearTimeout(checkHostTimeout); becomeHost(hostPeerId); });
+    hostConnection.on("close", () => updateRoomStatusText("Verbindung getrennt", ""));
   });
 
-  peer.on("error", () => {
-    clearTimeout(checkHostTimeout);
-    becomeHost(hostPeerId);
-  });
+  peer.on("error", () => { clearTimeout(checkHostTimeout); becomeHost(hostPeerId); });
 }
 
 function becomeHost(hostPeerId) {
   if (isHost && peer && peer.id === hostPeerId) return;
-
-  if (peer) {
-    try { peer.destroy(); } catch (e) {}
-    peer = null;
-  }
+  if (peer) { try { peer.destroy(); } catch (e) {} peer = null; }
 
   isHost = true;
   clientConnections = [];
-
   peer = new Peer(hostPeerId, { debug: 0 });
 
   peer.on("open", () => {
-    updateRoomStatusText(`Live: Host (${1} Spieler)`, "connected");
+    updateRoomStatusText(`Live: Host (1 Spieler)`, "connected");
     setupHostPeerListeners();
-
-    if (pendingMutationState) {
-      broadcastStateToClients();
-      pendingMutationState = null;
-    }
+    if (pendingMutationState) { broadcastStateToClients(); pendingMutationState = null; }
   });
 
   peer.on("error", (err) => {
-    if (err.type === "unavailable-id") {
-      setTimeout(() => initMultiplayerNetwork(), 500);
-    } else {
-      updateRoomStatusText("Live: Solomodus", "");
-    }
+    if (err.type === "unavailable-id") setTimeout(() => initMultiplayerNetwork(), 500);
+    else updateRoomStatusText("Live: Solomodus", "");
   });
 }
 
@@ -223,9 +316,7 @@ function setupHostPeerListeners() {
     clientConnections.push(conn);
     updateRoomStatusText(`Live: Host (${1 + clientConnections.length} Spieler)`, "connected");
 
-    conn.on("open", () => {
-      conn.send({ type: "SYNC_STATE", state: state });
-    });
+    conn.on("open", () => conn.send({ type: "SYNC_STATE", state }));
 
     conn.on("data", (data) => {
       if (data && data.type === "MUTATE_STATE" && data.state) {
@@ -233,8 +324,8 @@ function setupHostPeerListeners() {
         state = data.state;
         saveState(false);
         renderApp();
+        checkAndFireConfetti();
         isApplyingNetworkUpdate = false;
-
         broadcastStateToClients();
       }
     });
@@ -247,42 +338,28 @@ function setupHostPeerListeners() {
 }
 
 function broadcastStateToClients() {
-  clientConnections.forEach(conn => {
-    if (conn.open) {
-      conn.send({ type: "SYNC_STATE", state: state });
-    }
-  });
+  clientConnections.forEach(conn => { if (conn.open) conn.send({ type: "SYNC_STATE", state }); });
 }
 
 function sendMutationToHost() {
-  if (hostConnection && hostConnection.open) {
-    hostConnection.send({ type: "MUTATE_STATE", state: state });
-  } else {
-    pendingMutationState = state;
-  }
+  if (hostConnection && hostConnection.open) hostConnection.send({ type: "MUTATE_STATE", state });
+  else pendingMutationState = state;
 }
 
 function updateRoomStatusText(text, statusClass) {
-  const statusEl = document.getElementById("room-status");
-  if (statusEl) {
-    statusEl.textContent = text;
-    statusEl.className = `room-status ${statusClass}`;
-  }
+  const el = document.getElementById("room-status");
+  if (el) { el.textContent = text; el.className = `room-status ${statusClass}`; }
 
   const helpEl = document.getElementById("settings-host-help");
   const selectGrid = document.getElementById("select-grid-size");
   if (helpEl && selectGrid) {
-    if (!isHost) {
-      helpEl.textContent = "Nur der Raum-Host kann die Raster-Größe ändern.";
-      selectGrid.disabled = true;
-    } else {
-      helpEl.textContent = "Raster für alle Spielfelder festlegen.";
-      selectGrid.disabled = false;
-    }
+    if (!isHost) { helpEl.textContent = "Nur der Raum-Host kann die Raster-Größe ändern."; selectGrid.disabled = true; }
+    else { helpEl.textContent = "Raster für alle Spielfelder festlegen."; selectGrid.disabled = false; }
   }
 }
 
-// Load state from localStorage or create default
+// ── State Management ─────────────────────────────────────────────────────────
+
 function loadState() {
   const saved = localStorage.getItem(getRoomStorageKey());
   if (saved) {
@@ -290,66 +367,47 @@ function loadState() {
       state = JSON.parse(saved);
       if (!state.gridSize) state.gridSize = 4;
       if (!Array.isArray(state.boards) || state.boards.length === 0) {
-        state.boards = [createBoard(1), createBoard(2)];
+        state.boards = [createBoard(), createBoard()];
       }
-    } catch (e) {
-      console.error("Failed to parse saved state", e);
-      createDefaultState();
-    }
+    } catch (e) { createDefaultState(); }
   } else {
     createDefaultState();
   }
 }
 
 function createDefaultState() {
-  state = {
-    gridSize: 4,
-    boards: [createBoard(1), createBoard(2)]
-  };
+  state = { gridSize: 4, boards: [createBoard(), createBoard()] };
   saveState();
 }
 
 function saveState(shouldBroadcast = true) {
   localStorage.setItem(getRoomStorageKey(), JSON.stringify(state));
-
   if (shouldBroadcast && !isApplyingNetworkUpdate) {
-    if (isHost) {
-      broadcastStateToClients();
-    } else {
-      sendMutationToHost();
-    }
+    if (isHost) broadcastStateToClients();
+    else sendMutationToHost();
   }
 }
 
-function createBoard(number = 1) {
+function createBoard() {
   const totalTiles = state.gridSize * state.gridSize;
-  const tiles = [];
-  for (let i = 0; i < totalTiles; i++) {
-    tiles.push({
-      id: i,
-      text: "",
-      marked: false
-    });
-  }
-
   return {
     id: "board_" + Date.now() + "_" + Math.random().toString(36).substr(2, 5),
     playerName: "",
     isLocked: false,
     bgImage: "",
-    tiles: tiles
+    tiles: Array.from({ length: totalTiles }, (_, i) => ({ id: i, text: "", marked: false }))
   };
 }
 
+// ── Rendering ────────────────────────────────────────────────────────────────
+
 function renderApp() {
   document.documentElement.style.setProperty("--grid-size", state.gridSize);
-
   const selectGrid = document.getElementById("select-grid-size");
   if (selectGrid) selectGrid.value = state.gridSize;
 
   const userBadge = document.getElementById("active-user-badge");
   const userNameEl = document.getElementById("active-user-name");
-  
   if (localActiveUser) {
     userBadge.classList.remove("hidden");
     userNameEl.textContent = localActiveUser + (isHost ? " (Host)" : "");
@@ -359,135 +417,85 @@ function renderApp() {
 
   const container = document.getElementById("boards-container");
   container.innerHTML = "";
+  state.boards.forEach((board) => container.appendChild(renderBoardCard(board)));
 
-  state.boards.forEach((board, index) => {
-    const card = renderBoardCard(board, index);
-    container.appendChild(card);
-  });
+  checkAndFireConfetti();
 }
 
-function renderBoardCard(board, index) {
+function renderBoardCard(board) {
   const isMine = board.playerName && board.playerName === localActiveUser;
   const isClaimed = Boolean(board.playerName);
   const hasBg = Boolean(board.bgImage);
+  const bingoResult = checkBingo(board);
 
   const card = document.createElement("div");
-  card.className = `bingo-board-card ${isClaimed ? "claimed" : ""} ${isMine ? "my-board" : ""} ${board.isLocked ? "locked" : ""} ${hasBg ? "has-bg-image" : ""}`;
+  card.className = [
+    "bingo-board-card",
+    isClaimed ? "claimed" : "",
+    isMine ? "my-board" : "",
+    board.isLocked ? "locked" : "",
+    hasBg ? "has-bg-image" : "",
+    bingoResult.hasBingo ? "has-bingo" : ""
+  ].join(" ").trim();
   card.dataset.boardId = board.id;
-
-  const bingoResult = checkBingo(board);
-  if (bingoResult.hasBingo) {
-    card.classList.add("has-bingo");
-  }
-
-  let playerDisplay = "";
-  if (isClaimed) {
-    const isMeTag = isMine ? `<span class="owner-indicator is-me">Du</span>` : `<span class="owner-indicator">Besitzer</span>`;
-    playerDisplay = `
-      <span class="player-name-badge" title="Spieler">
-        ${escapeHtml(board.playerName)} ${isMeTag}
-      </span>
-    `;
-  } else {
-    playerDisplay = `
-      <button class="unclaimed-badge" data-action="claim-board" data-id="${board.id}">
-        Spielfeld übernehmen
-      </button>
-    `;
-  }
-
-  const lockButtonText = board.isLocked ? "Sperre aufheben" : "Feld sperren";
-  const lockButtonClass = board.isLocked ? "btn-secondary" : "btn-primary";
-
-  const canDelete = !isClaimed || isMine || isHost;
 
   let html = "";
 
-  if (board.bgImage) {
+  if (hasBg) {
     html += `<div class="board-bg-layer" style="background-image: url('${encodeURI(board.bgImage)}');"></div>`;
   }
 
+  const lockBtnText = board.isLocked ? "Sperre aufheben" : "Feld sperren";
+  const lockBtnClass = board.isLocked ? "btn-secondary" : "btn-primary";
+  const canDelete = !isClaimed || isMine || isHost;
+
+  let playerDisplay = isClaimed
+    ? `<span class="player-name-badge">${escapeHtml(board.playerName)} <span class="owner-indicator ${isMine ? "is-me" : ""}">${isMine ? "Du" : "Besitzer"}</span></span>`
+    : `<button class="unclaimed-badge" data-action="claim-board" data-id="${board.id}">Spielfeld übernehmen</button>`;
+
   html += `
     <div class="bingo-header">
-      <div class="board-player-info">
-        ${playerDisplay}
-      </div>
+      <div class="board-player-info">${playerDisplay}</div>
       <div class="board-actions">
-        ${isClaimed && isMine ? `
-          <button class="btn btn-sm btn-secondary" data-action="open-board-design" data-id="${board.id}" title="Hintergrundbild wählen">
-            Design
-          </button>
-          ${!board.isLocked ? `
-            <button class="btn btn-sm btn-secondary" data-action="randomize-board" data-id="${board.id}" title="Zufällige Rosin-Begriffe ausfüllen">
-              Zufall
-            </button>
-          ` : `
-            <button class="btn btn-sm btn-secondary" data-action="reset-marks" data-id="${board.id}" title="Alle Markierungen zurücksetzen">
-              Neu starten
-            </button>
-          `}
-          <button class="btn btn-sm btn-secondary" data-action="release-board" data-id="${board.id}" title="Spielfeld freigeben">
-            Freigeben
-          </button>
-          <button class="btn btn-sm ${lockButtonClass}" data-action="toggle-lock" data-id="${board.id}">
-            ${lockButtonText}
-          </button>
-        ` : ''}
-        ${canDelete ? `
-          <button class="btn btn-sm btn-icon-only btn-delete-board" data-action="delete-board" data-id="${board.id}" title="Spielfeld löschen">
-            &times;
-          </button>
-        ` : ''}
+        ${isMine ? `
+          <button class="btn btn-sm btn-secondary" data-action="open-board-design" data-id="${board.id}">Design</button>
+          ${!board.isLocked
+            ? `<button class="btn btn-sm btn-secondary" data-action="randomize-board" data-id="${board.id}">Zufall</button>`
+            : `<button class="btn btn-sm btn-secondary" data-action="reset-marks" data-id="${board.id}">Neu starten</button>`}
+          <button class="btn btn-sm btn-secondary" data-action="release-board" data-id="${board.id}">Freigeben</button>
+          <button class="btn btn-sm ${lockBtnClass}" data-action="toggle-lock" data-id="${board.id}">${lockBtnText}</button>
+          <button class="btn btn-sm btn-secondary" data-action="download-board" data-id="${board.id}" title="Als Bild herunterladen">Download</button>
+        ` : ""}
+        ${canDelete ? `<button class="btn btn-sm btn-icon-only btn-delete-board" data-action="delete-board" data-id="${board.id}">&times;</button>` : ""}
       </div>
     </div>
   `;
 
   if (bingoResult.hasBingo) {
-    html += `
-      <div class="bingo-banner">
-        BINGO! BINGO! BINGO!
-      </div>
-    `;
+    html += `<div class="bingo-banner">BINGO! BINGO! BINGO!</div>`;
   } else {
-    const filledCount = board.tiles.filter(t => t.text.trim() !== "").length;
-    const totalCount = board.tiles.length;
+    const filledCount = board.tiles.filter(t => t.text.trim()).length;
     const markedCount = board.tiles.filter(t => t.marked).length;
-
-    let modeText = "";
-    if (!isClaimed) {
-      modeText = "Freies Feld: Klicke zum Übernehmen";
-    } else if (board.isLocked) {
-      modeText = `Markiert: ${markedCount}/${totalCount} (Spielmodus)`;
-    } else {
-      modeText = `Ausgefüllt: ${filledCount}/${totalCount} (Bearbeiten)`;
-    }
-
-    html += `
-      <div class="board-subbar">
-        <span>${modeText}</span>
-      </div>
-    `;
+    const total = board.tiles.length;
+    let modeText = !isClaimed ? "Freies Feld: Klicke zum Übernehmen"
+      : board.isLocked ? `Markiert: ${markedCount}/${total} (Spielmodus)`
+      : `Ausgefüllt: ${filledCount}/${total} (Bearbeiten)`;
+    html += `<div class="board-subbar"><span>${modeText}</span></div>`;
   }
 
   html += `<div class="bingo-grid">`;
-  
   board.tiles.forEach((tile, idx) => {
-    const isWinningTile = bingoResult.winningIndices.includes(idx);
+    const isWinner = bingoResult.winningIndices.includes(idx);
     const tileText = tile.text.trim();
     const sizeClass = getFontSizeClass(tileText);
-    const isEmpty = tileText === "";
-
     html += `
-      <div class="bingo-tile ${tile.marked ? "marked" : ""} ${isEmpty ? "empty" : ""} ${isWinningTile ? "winning-tile" : ""}"
-           data-board-id="${board.id}" 
-           data-tile-index="${idx}">
+      <div class="bingo-tile ${tile.marked ? "marked" : ""} ${!tileText ? "empty" : ""} ${isWinner ? "winning-tile" : ""}"
+           data-board-id="${board.id}" data-tile-index="${idx}">
         <div class="tile-content ${sizeClass}">
-          ${isEmpty ? (board.isLocked || !isClaimed ? "" : "+ Text") : escapeHtml(tileText)}
+          ${tileText ? escapeHtml(tileText) : (board.isLocked || !isClaimed ? "" : "+ Text")}
         </div>
-      </div>
-    `;
+      </div>`;
   });
-
   html += `</div>`;
 
   card.innerHTML = html;
@@ -495,15 +503,17 @@ function renderBoardCard(board, index) {
 }
 
 function getFontSizeClass(text) {
-  const len = text.length;
-  if (len === 0) return "size-md";
-  if (len <= 8) return "size-xl";
-  if (len <= 20) return "size-lg";
-  if (len <= 45) return "size-md";
-  if (len <= 75) return "size-sm";
-  if (len <= 95) return "size-xs";
+  const l = text.length;
+  if (l === 0) return "size-md";
+  if (l <= 8) return "size-xl";
+  if (l <= 20) return "size-lg";
+  if (l <= 45) return "size-md";
+  if (l <= 75) return "size-sm";
+  if (l <= 95) return "size-xs";
   return "size-xxs";
 }
+
+// ── Bingo Check ──────────────────────────────────────────────────────────────
 
 function checkBingo(board) {
   const n = state.gridSize;
@@ -511,335 +521,195 @@ function checkBingo(board) {
   let winningIndices = [];
   let hasBingo = false;
 
-  for (let r = 0; r < n; r++) {
-    let rowIndices = [];
-    let rowMarked = true;
-    for (let c = 0; c < n; c++) {
-      const idx = r * n + c;
-      rowIndices.push(idx);
-      if (!tiles[idx] || !tiles[idx].marked) {
-        rowMarked = false;
-      }
-    }
-    if (rowMarked) {
+  const checkLine = (indices) => {
+    if (indices.every(i => tiles[i] && tiles[i].marked)) {
       hasBingo = true;
-      winningIndices.push(...rowIndices);
+      winningIndices.push(...indices);
     }
-  }
-
-  for (let c = 0; c < n; c++) {
-    let colIndices = [];
-    let colMarked = true;
-    for (let r = 0; r < n; r++) {
-      const idx = r * n + c;
-      colIndices.push(idx);
-      if (!tiles[idx] || !tiles[idx].marked) {
-        colMarked = false;
-      }
-    }
-    if (colMarked) {
-      hasBingo = true;
-      winningIndices.push(...colIndices);
-    }
-  }
-
-  let diag1Indices = [];
-  let diag1Marked = true;
-  for (let i = 0; i < n; i++) {
-    const idx = i * n + i;
-    diag1Indices.push(idx);
-    if (!tiles[idx] || !tiles[idx].marked) {
-      diag1Marked = false;
-    }
-  }
-  if (diag1Marked) {
-    hasBingo = true;
-    winningIndices.push(...diag1Indices);
-  }
-
-  let diag2Indices = [];
-  let diag2Marked = true;
-  for (let i = 0; i < n; i++) {
-    const idx = i * n + (n - 1 - i);
-    diag2Indices.push(idx);
-    if (!tiles[idx] || !tiles[idx].marked) {
-      diag2Marked = false;
-    }
-  }
-  if (diag2Marked) {
-    hasBingo = true;
-    winningIndices.push(...diag2Indices);
-  }
-
-  return {
-    hasBingo,
-    winningIndices: [...new Set(winningIndices)]
   };
+
+  for (let r = 0; r < n; r++) checkLine(Array.from({ length: n }, (_, c) => r * n + c));
+  for (let c = 0; c < n; c++) checkLine(Array.from({ length: n }, (_, r) => r * n + c));
+  checkLine(Array.from({ length: n }, (_, i) => i * n + i));
+  checkLine(Array.from({ length: n }, (_, i) => i * n + (n - 1 - i)));
+
+  return { hasBingo, winningIndices: [...new Set(winningIndices)] };
 }
+
+// ── Event Listeners ──────────────────────────────────────────────────────────
 
 function setupEventListeners() {
   const container = document.getElementById("boards-container");
 
   container.addEventListener("click", (e) => {
-    const target = e.target;
-
-    const actionBtn = target.closest("[data-action]");
+    const actionBtn = e.target.closest("[data-action]");
     if (actionBtn) {
       const action = actionBtn.dataset.action;
       const boardId = actionBtn.dataset.id;
-
-      if (action === "claim-board") {
-        openClaimModal(boardId);
-        return;
-      } else if (action === "release-board") {
-        releaseBoard(boardId);
-        return;
-      } else if (action === "toggle-lock") {
-        toggleBoardLock(boardId);
-        return;
-      } else if (action === "delete-board") {
-        deleteBoard(boardId);
-        return;
-      } else if (action === "randomize-board") {
-        randomizeBoard(boardId);
-        return;
-      } else if (action === "reset-marks") {
-        resetMarks(boardId);
-        return;
-      } else if (action === "open-board-design") {
-        openBoardDesignModal(boardId);
-        return;
-      }
+      if (action === "claim-board")        { openClaimModal(boardId); return; }
+      if (action === "release-board")      { releaseBoard(boardId); return; }
+      if (action === "toggle-lock")        { toggleBoardLock(boardId); return; }
+      if (action === "delete-board")       { deleteBoard(boardId); return; }
+      if (action === "randomize-board")    { randomizeBoard(boardId); return; }
+      if (action === "reset-marks")        { resetMarks(boardId); return; }
+      if (action === "open-board-design")  { openBoardDesignModal(boardId); return; }
+      if (action === "download-board")     { downloadBoardAsImage(boardId); return; }
     }
 
-    const tileEl = target.closest(".bingo-tile");
-    if (tileEl) {
-      const boardId = tileEl.dataset.boardId;
-      const tileIdx = parseInt(tileEl.dataset.tileIndex, 10);
-      handleTileClick(boardId, tileIdx);
-    }
+    const tileEl = e.target.closest(".bingo-tile");
+    if (tileEl) handleTileClick(tileEl.dataset.boardId, parseInt(tileEl.dataset.tileIndex, 10));
   });
 
-  // Copy Room Share Link
+  // Dark mode toggle
+  document.getElementById("btn-dark-mode").addEventListener("click", toggleDarkMode);
+
+  // Scoreboard
+  document.getElementById("btn-scoreboard").addEventListener("click", () => {
+    renderScoreboard();
+    openModal("modal-scoreboard");
+  });
+
+  // Copy room link
   document.getElementById("btn-copy-room").addEventListener("click", () => {
-    const shareUrl = window.location.protocol + "//" + window.location.host + window.location.pathname + "?room=" + currentRoomId + "&v=" + APP_VERSION;
-    navigator.clipboard.writeText(shareUrl).then(() => {
-      alert("Spiel-Link in die Zwischenablage kopiert! Sende den Link deinen Freunden.");
-    }).catch(err => {
-      prompt("Kopiere diesen Link für deine Freunde:", shareUrl);
-    });
+    const url = `${location.protocol}//${location.host}${location.pathname}?room=${currentRoomId}&v=${APP_VERSION}`;
+    navigator.clipboard.writeText(url)
+      .then(() => alert("Spiel-Link in die Zwischenablage kopiert!"))
+      .catch(() => prompt("Kopiere diesen Link für deine Freunde:", url));
   });
 
-  // Join Room Modal Open
+  // Room modal
   document.getElementById("btn-join-room-modal").addEventListener("click", () => {
     document.getElementById("input-room-code").value = currentRoomId;
     openModal("modal-join-room");
   });
 
-  // Start Brand New Room Session (Always 100% clean & reset state)
   document.getElementById("btn-start-new-room").addEventListener("click", () => {
     const newRoom = "rosin" + Math.random().toString(36).substr(2, 5);
-    
-    // Explicitly initialize clean empty default state for the new room
-    const cleanDefaultState = {
+    const cleanState = {
       gridSize: 4,
       boards: [
-        {
-          id: "board_" + Date.now() + "_1",
-          playerName: "",
-          isLocked: false,
-          bgImage: "",
-          tiles: Array.from({ length: 16 }, (_, i) => ({ id: i, text: "", marked: false }))
-        },
-        {
-          id: "board_" + Date.now() + "_2",
-          playerName: "",
-          isLocked: false,
-          bgImage: "",
-          tiles: Array.from({ length: 16 }, (_, i) => ({ id: i, text: "", marked: false }))
-        }
+        { id: "board_" + Date.now() + "_1", playerName: "", isLocked: false, bgImage: "",
+          tiles: Array.from({ length: 16 }, (_, i) => ({ id: i, text: "", marked: false })) },
+        { id: "board_" + Date.now() + "_2", playerName: "", isLocked: false, bgImage: "",
+          tiles: Array.from({ length: 16 }, (_, i) => ({ id: i, text: "", marked: false })) }
       ]
     };
-
-    localStorage.setItem(getRoomStorageKey(newRoom), JSON.stringify(cleanDefaultState));
-    window.location.href = window.location.protocol + "//" + window.location.host + window.location.pathname + "?room=" + newRoom + "&v=" + APP_VERSION;
+    localStorage.setItem(getRoomStorageKey(newRoom), JSON.stringify(cleanState));
+    window.location.href = `${location.protocol}//${location.host}${location.pathname}?room=${newRoom}&v=${APP_VERSION}`;
   });
 
-  // Confirm Join Existing Room
   document.getElementById("btn-confirm-join-room").addEventListener("click", () => {
     const code = document.getElementById("input-room-code").value.trim().toLowerCase().replace(/[^a-z0-9]/g, "");
-    if (code) {
-      window.location.href = window.location.protocol + "//" + window.location.host + window.location.pathname + "?room=" + code + "&v=" + APP_VERSION;
-    }
+    if (code) window.location.href = `${location.protocol}//${location.host}${location.pathname}?room=${code}&v=${APP_VERSION}`;
   });
 
-  // Add Board
+  // Add board
   document.getElementById("btn-add-board").addEventListener("click", () => {
-    const newBoard = createBoard(state.boards.length + 1);
-    state.boards.push(newBoard);
+    state.boards.push(createBoard());
     saveState();
     renderApp();
   });
 
   // Settings
-  document.getElementById("btn-settings").addEventListener("click", () => {
-    openModal("modal-settings");
-  });
+  document.getElementById("btn-settings").addEventListener("click", () => openModal("modal-settings"));
 
   document.getElementById("select-grid-size").addEventListener("change", (e) => {
-    if (!isHost) {
-      alert("Nur der Raum-Host kann die Raster-Größe ändern.");
-      renderApp();
-      return;
-    }
+    if (!isHost) { alert("Nur der Raum-Host kann die Raster-Größe ändern."); renderApp(); return; }
     const newSize = parseInt(e.target.value, 10);
     if (newSize !== state.gridSize) {
       state.gridSize = newSize;
       state.boards.forEach(board => {
         const totalTiles = newSize * newSize;
-        const newTiles = [];
-        for (let i = 0; i < totalTiles; i++) {
-          newTiles.push(board.tiles[i] || { id: i, text: "", marked: false });
-        }
-        board.tiles = newTiles;
+        board.tiles = Array.from({ length: totalTiles }, (_, i) => board.tiles[i] || { id: i, text: "", marked: false });
       });
       saveState();
       renderApp();
     }
   });
 
-  // Reset (Host-Only Permission)
+  // Reset
   document.getElementById("btn-reset").addEventListener("click", () => {
-    if (!isHost) {
-      alert("Nur der Raum-Host kann das gesamte Spiel zurücksetzen.");
-      return;
-    }
+    if (!isHost) { alert("Nur der Raum-Host kann das gesamte Spiel zurücksetzen."); return; }
     openModal("modal-reset");
   });
 
   document.getElementById("btn-confirm-reset").addEventListener("click", () => {
-    if (!isHost) {
-      alert("Nur der Raum-Host kann das gesamte Spiel zurücksetzen.");
-      closeModal("modal-reset");
-      return;
-    }
+    if (!isHost) { closeModal("modal-reset"); return; }
+    previousBingoBoards.clear();
     createDefaultState();
     closeModal("modal-reset");
     renderApp();
   });
 
-  // Confirm Claim with 1-board-per-user restriction
+  // Claim board
   document.getElementById("btn-confirm-claim").addEventListener("click", () => {
-    const input = document.getElementById("input-player-name");
-    const name = input.value.trim();
+    const name = document.getElementById("input-player-name").value.trim();
+    if (!name) { alert("Bitte gib einen gültigen Namen ein."); return; }
 
-    if (!name) {
-      alert("Bitte gib einen gültigen Namen ein.");
-      return;
+    const taken = state.boards.find(b => b.id !== claimingBoardId && b.playerName.toLowerCase() === name.toLowerCase());
+    if (taken) { alert(`"${name}" besitzt bereits ein Spielfeld!`); return; }
+
+    const myOther = state.boards.find(b => b.id !== claimingBoardId && b.playerName === localActiveUser);
+    if (myOther) {
+      if (!confirm(`Du besitzt bereits ein Spielfeld. Freigeben und dieses übernehmen?`)) return;
+      myOther.playerName = "";
     }
 
-    const existingBoard = state.boards.find(b => b.id !== claimingBoardId && b.playerName.toLowerCase() === name.toLowerCase());
-    if (existingBoard) {
-      alert(`Der Name "${name}" besitzt bereits ein anderes Spielfeld. Jeder Spieler kann nur 1 Spielfeld gleichzeitig besitzen!`);
-      return;
-    }
-
-    const currentOwnedBoard = state.boards.find(b => b.id !== claimingBoardId && b.playerName && b.playerName === localActiveUser);
-    if (currentOwnedBoard) {
-      const confirmSwitch = confirm(`Du (${localActiveUser}) besitzt bereits ein Spielfeld. Möchtest du dein altes Spielfeld freigeben, um dieses neue Spielfeld zu übernehmen?`);
-      if (confirmSwitch) {
-        currentOwnedBoard.playerName = "";
-      } else {
-        return;
-      }
-    }
-
-    if (claimingBoardId) {
-      const board = state.boards.find(b => b.id === claimingBoardId);
-      if (board) {
-        board.playerName = name;
-        saveLocalUser(name);
-        saveState();
-        renderApp();
-      }
-    }
+    const board = state.boards.find(b => b.id === claimingBoardId);
+    if (board) { board.playerName = name; saveLocalUser(name); saveState(); renderApp(); }
     closeModal("modal-claim");
   });
 
-  // Save Board Background Design
+  // Board design
   document.getElementById("btn-save-board-design").addEventListener("click", () => {
-    if (designBoardId) {
-      const board = state.boards.find(b => b.id === designBoardId);
-      if (board) {
-        board.bgImage = selectedBgImage;
-        saveState();
-        renderApp();
-      }
-    }
+    const board = state.boards.find(b => b.id === designBoardId);
+    if (board) { board.bgImage = selectedBgImage; saveState(); renderApp(); }
     closeModal("modal-board-design");
   });
 
-  // Save Tile
-  document.getElementById("btn-save-tile").addEventListener("click", () => {
-    saveTileEdit();
-  });
-
-  // Clear Tile Text Button
+  // Tile edit
+  document.getElementById("btn-save-tile").addEventListener("click", saveTileEdit);
   document.getElementById("btn-clear-tile").addEventListener("click", () => {
     document.getElementById("input-tile-text").value = "";
     saveTileEdit();
   });
 
-  // Close modals on Escape key press
-  document.addEventListener("keydown", (e) => {
-    if (e.key === "Escape") {
-      closeAllModals();
-    }
-  });
+  // Escape key
+  document.addEventListener("keydown", (e) => { if (e.key === "Escape") closeAllModals(); });
 
   document.querySelectorAll("[data-close]").forEach(btn => {
-    btn.addEventListener("click", () => {
-      closeModal(btn.dataset.close);
-    });
+    btn.addEventListener("click", () => closeModal(btn.dataset.close));
   });
 
   document.getElementById("input-player-name").addEventListener("keydown", (e) => {
-    if (e.key === "Enter") {
-      document.getElementById("btn-confirm-claim").click();
-    }
+    if (e.key === "Enter") document.getElementById("btn-confirm-claim").click();
   });
 }
+
+// ── Board Actions ────────────────────────────────────────────────────────────
 
 function handleTileClick(boardId, tileIdx) {
   const board = state.boards.find(b => b.id === boardId);
   if (!board) return;
 
-  if (!board.playerName) {
-    openClaimModal(boardId);
-    return;
-  }
+  if (!board.playerName) { openClaimModal(boardId); return; }
 
-  // Strict Ownership: Only the claimed owner can edit or mark!
   if (board.playerName !== localActiveUser) {
-    document.getElementById("ownership-warning-text").textContent = 
-      `Dieses Spielfeld gehört "${board.playerName}". Nur der Besitzer kann dieses Bingo-Feld bearbeiten oder abkreuzen!`;
+    document.getElementById("ownership-warning-text").textContent =
+      `Dieses Spielfeld gehört "${board.playerName}". Nur der Besitzer kann es bearbeiten oder abkreuzen!`;
     openModal("modal-ownership");
     return;
   }
 
   if (board.isLocked) {
-    if (board.tiles[tileIdx]) {
-      board.tiles[tileIdx].marked = !board.tiles[tileIdx].marked;
-      saveState(true);
-      renderApp();
-    }
+    board.tiles[tileIdx].marked = !board.tiles[tileIdx].marked;
+    saveState(true);
+    renderApp();
+    checkAndFireConfetti();
   } else {
     activeBoardId = boardId;
     activeTileIndex = tileIdx;
-    
-    const tileText = board.tiles[tileIdx] ? board.tiles[tileIdx].text : "";
-    document.getElementById("input-tile-text").value = tileText;
-
+    document.getElementById("input-tile-text").value = board.tiles[tileIdx]?.text || "";
     renderPresets();
     openModal("modal-tile-edit");
   }
@@ -848,19 +718,13 @@ function handleTileClick(boardId, tileIdx) {
 function toggleBoardLock(boardId) {
   const board = state.boards.find(b => b.id === boardId);
   if (!board) return;
-
-  if (!board.playerName) {
-    openClaimModal(boardId);
-    return;
-  }
-
+  if (!board.playerName) { openClaimModal(boardId); return; }
   if (board.playerName !== localActiveUser) {
-    document.getElementById("ownership-warning-text").textContent = 
-      `Dieses Spielfeld gehört "${board.playerName}". Nur der Besitzer kann das Spielfeld sperren oder entsperren!`;
+    document.getElementById("ownership-warning-text").textContent =
+      `Dieses Spielfeld gehört "${board.playerName}". Nur der Besitzer kann es sperren!`;
     openModal("modal-ownership");
     return;
   }
-
   board.isLocked = !board.isLocked;
   saveState();
   renderApp();
@@ -869,34 +733,22 @@ function toggleBoardLock(boardId) {
 function openBoardDesignModal(boardId) {
   designBoardId = boardId;
   const board = state.boards.find(b => b.id === boardId);
-  selectedBgImage = board ? (board.bgImage || "") : "";
+  selectedBgImage = board?.bgImage || "";
 
   const container = document.getElementById("franky-options-grid");
   container.innerHTML = "";
 
   const noneCard = document.createElement("div");
   noneCard.className = `franky-option-card ${selectedBgImage === "" ? "selected" : ""}`;
-  noneCard.innerHTML = `
-    <div class="franky-none-placeholder">Kein Bild</div>
-    <span class="franky-option-title">Standard</span>
-  `;
-  noneCard.addEventListener("click", () => {
-    selectedBgImage = "";
-    updateSelectedFrankyOption(container, noneCard);
-  });
+  noneCard.innerHTML = `<div class="franky-none-placeholder">Kein Bild</div><span class="franky-option-title">Standard</span>`;
+  noneCard.addEventListener("click", () => { selectedBgImage = ""; updateSelectedFrankyOption(container, noneCard); });
   container.appendChild(noneCard);
 
   FRANKY_IMAGES.forEach(img => {
     const card = document.createElement("div");
     card.className = `franky-option-card ${selectedBgImage === img.file ? "selected" : ""}`;
-    card.innerHTML = `
-      <img src="${encodeURI(img.file)}" alt="${escapeHtml(img.name)}" class="franky-option-img">
-      <span class="franky-option-title">${escapeHtml(img.name)}</span>
-    `;
-    card.addEventListener("click", () => {
-      selectedBgImage = img.file;
-      updateSelectedFrankyOption(container, card);
-    });
+    card.innerHTML = `<img src="${encodeURI(img.file)}" alt="${escapeHtml(img.name)}" class="franky-option-img"><span class="franky-option-title">${escapeHtml(img.name)}</span>`;
+    card.addEventListener("click", () => { selectedBgImage = img.file; updateSelectedFrankyOption(container, card); });
     container.appendChild(card);
   });
 
@@ -911,12 +763,8 @@ function updateSelectedFrankyOption(container, selectedCard) {
 function randomizeBoard(boardId) {
   const board = state.boards.find(b => b.id === boardId);
   if (!board || board.isLocked) return;
-
   const shuffled = [...ROSIN_PRESETS].sort(() => 0.5 - Math.random());
-  board.tiles.forEach((tile, index) => {
-    tile.text = shuffled[index % shuffled.length];
-  });
-
+  board.tiles.forEach((tile, i) => { tile.text = shuffled[i % shuffled.length]; });
   saveState();
   renderApp();
 }
@@ -924,9 +772,9 @@ function randomizeBoard(boardId) {
 function resetMarks(boardId) {
   const board = state.boards.find(b => b.id === boardId);
   if (!board) return;
-
-  if (confirm("Möchtest du alle roten Markierungen für eine neue Runde zurücksetzen?")) {
+  if (confirm("Alle roten Markierungen für eine neue Runde zurücksetzen?")) {
     board.tiles.forEach(t => t.marked = false);
+    previousBingoBoards.delete(boardId);
     saveState();
     renderApp();
   }
@@ -935,7 +783,7 @@ function resetMarks(boardId) {
 function releaseBoard(boardId) {
   const board = state.boards.find(b => b.id === boardId);
   if (board && board.playerName === localActiveUser) {
-    if (confirm(`Möchtest du dein Spielfeld wirklich freigeben?`)) {
+    if (confirm("Spielfeld wirklich freigeben?")) {
       board.playerName = "";
       saveLocalUser("");
       saveState();
@@ -944,12 +792,26 @@ function releaseBoard(boardId) {
   }
 }
 
+function deleteBoard(boardId) {
+  if (state.boards.length <= 1) { alert("Mindestens ein Spielfeld muss verbleiben!"); return; }
+  const board = state.boards.find(b => b.id === boardId);
+  if (!board) return;
+  const isClaimed = Boolean(board.playerName);
+  const isMine = board.playerName === localActiveUser;
+  if (isClaimed && !isMine && !isHost) { alert(`Nur der Raum-Host oder "${board.playerName}" kann dieses aktive Spielfeld löschen.`); return; }
+  if (confirm(isClaimed ? `Spielfeld von "${board.playerName}" wirklich löschen?` : "Leeres Spielfeld löschen?")) {
+    state.boards = state.boards.filter(b => b.id !== boardId);
+    if (isMine) saveLocalUser("");
+    saveState();
+    renderApp();
+  }
+}
+
 function saveTileEdit() {
-  if (activeBoardId && activeTileIndex !== null) {
+  if (activeBoardId !== null && activeTileIndex !== null) {
     const board = state.boards.find(b => b.id === activeBoardId);
-    if (board && board.tiles[activeTileIndex]) {
-      const text = document.getElementById("input-tile-text").value;
-      board.tiles[activeTileIndex].text = text;
+    if (board?.tiles[activeTileIndex]) {
+      board.tiles[activeTileIndex].text = document.getElementById("input-tile-text").value;
       saveState();
       renderApp();
     }
@@ -960,89 +822,32 @@ function saveTileEdit() {
 function renderPresets() {
   const container = document.getElementById("presets-container");
   container.innerHTML = "";
-
-  ROSIN_PRESETS.forEach(presetText => {
+  ROSIN_PRESETS.forEach(text => {
     const chip = document.createElement("button");
     chip.className = "preset-chip";
-    chip.textContent = presetText;
+    chip.textContent = text;
     chip.type = "button";
-    chip.addEventListener("click", () => {
-      document.getElementById("input-tile-text").value = presetText;
-    });
+    chip.addEventListener("click", () => { document.getElementById("input-tile-text").value = text; });
     container.appendChild(chip);
   });
-}
-
-function deleteBoard(boardId) {
-  if (state.boards.length <= 1) {
-    alert("Du musst mindestens ein Spielfeld behalten!");
-    return;
-  }
-  
-  const board = state.boards.find(b => b.id === boardId);
-  if (!board) return;
-
-  const isClaimed = Boolean(board.playerName);
-  const isMine = board.playerName === localActiveUser;
-
-  if (isClaimed && !isMine && !isHost) {
-    alert(`Nur der Raum-Host oder "${board.playerName}" kann dieses aktive Spielfeld löschen.`);
-    return;
-  }
-
-  const confirmMsg = isClaimed 
-    ? `Möchtest du das Spielfeld von "${board.playerName}" wirklich löschen?`
-    : "Möchtest du dieses leere Spielfeld wirklich löschen?";
-
-  if (confirm(confirmMsg)) {
-    state.boards = state.boards.filter(b => b.id !== boardId);
-    if (isMine) {
-      saveLocalUser("");
-    }
-    saveState();
-    renderApp();
-  }
 }
 
 function openClaimModal(boardId) {
   claimingBoardId = boardId;
   const board = state.boards.find(b => b.id === boardId);
   const input = document.getElementById("input-player-name");
-
-  const ownedBoard = state.boards.find(b => b.id !== boardId && b.playerName && b.playerName === localActiveUser);
-  if (ownedBoard) {
-    input.value = "";
-  } else {
-    input.value = localActiveUser || (board ? board.playerName : "");
-  }
-
+  const myOther = state.boards.find(b => b.id !== boardId && b.playerName === localActiveUser);
+  input.value = myOther ? "" : (localActiveUser || board?.playerName || "");
   openModal("modal-claim");
   setTimeout(() => input.focus(), 100);
 }
 
-function openModal(modalId) {
-  const modal = document.getElementById(modalId);
-  if (modal) {
-    modal.classList.remove("hidden");
-  }
-}
+// ── Modal Helpers ────────────────────────────────────────────────────────────
 
-function closeModal(modalId) {
-  const modal = document.getElementById(modalId);
-  if (modal) {
-    modal.classList.add("hidden");
-  }
-}
-
-function closeAllModals() {
-  document.querySelectorAll(".modal-overlay").forEach(m => m.classList.add("hidden"));
-}
+function openModal(id) { document.getElementById(id)?.classList.remove("hidden"); }
+function closeModal(id) { document.getElementById(id)?.classList.add("hidden"); }
+function closeAllModals() { document.querySelectorAll(".modal-overlay").forEach(m => m.classList.add("hidden")); }
 
 function escapeHtml(str) {
-  return str
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#039;");
+  return str.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;").replace(/'/g,"&#039;");
 }

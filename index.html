@@ -1,15 +1,19 @@
 <!DOCTYPE html>
-<html lang="de">
+<html lang="de" data-theme="light">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Rosins Bingo</title>
-  <link rel="stylesheet" href="style.css?v=1.0.5">
+  <link rel="stylesheet" href="style.css?v=1.0.6">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700;800&display=swap" rel="stylesheet">
   <!-- PeerJS for Real-Time Multiplayer WebRTC Sync -->
   <script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
+  <!-- canvas-confetti for Bingo celebration -->
+  <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.9.3/dist/confetti.browser.min.js"></script>
+  <!-- html2canvas for board image download -->
+  <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
 </head>
 <body>
 
@@ -36,11 +40,17 @@
           <span class="active-user-label">Ich bin:</span>
           <strong id="active-user-name">--</strong>
         </div>
+        <button id="btn-scoreboard" class="btn btn-secondary" title="Punktestand anzeigen">
+          Punkte
+        </button>
+        <button id="btn-dark-mode" class="btn btn-secondary" title="Dunkelmodus umschalten">
+          Dunkel
+        </button>
         <button id="btn-settings" class="btn btn-secondary" title="Einstellungen">
-          <span class="btn-text">Einstellungen</span>
+          Einstellungen
         </button>
         <button id="btn-reset" class="btn btn-danger" title="Spiel zurücksetzen">
-          <span class="btn-text">Reset</span>
+          Reset
         </button>
       </div>
     </div>
@@ -62,6 +72,24 @@
       </div>
     </div>
   </main>
+
+  <!-- Scoreboard Modal -->
+  <div id="modal-scoreboard" class="modal-overlay hidden">
+    <div class="modal-card">
+      <div class="modal-header">
+        <h3>Punktestand</h3>
+        <button class="modal-close" data-close="modal-scoreboard">&times;</button>
+      </div>
+      <div class="modal-body">
+        <div id="scoreboard-content" class="scoreboard-list">
+          <!-- Injected dynamically -->
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-primary" data-close="modal-scoreboard">Schließen</button>
+      </div>
+    </div>
+  </div>
 
   <!-- Join / Start New Room Session Modal -->
   <div id="modal-join-room" class="modal-overlay hidden">
@@ -101,7 +129,7 @@
       </div>
       <div class="modal-body">
         <p>Gib deinen Namen ein, um dieses Spielfeld zu beanspruchen. Jeder Spieler kann nur 1 Spielfeld gleichzeitig besitzen!</p>
-        <input type="text" id="input-player-name" class="form-input" placeholder="Dein Name" maxlength="25">
+        <input type="text" id="input-player-name" class="form-input" placeholder="Dein Name (z.B. Niels)" maxlength="25">
       </div>
       <div class="modal-footer">
         <button class="btn btn-secondary" data-close="modal-claim">Abbrechen</button>
@@ -216,9 +244,9 @@
 
   <!-- Footer Version Tag -->
   <footer class="app-footer">
-    <small>Rosins Bingo v1.0.5</small>
+    <small>Rosins Bingo v1.0.6</small>
   </footer>
 
-  <script src="app.js?v=1.0.5"></script>
+  <script src="app.js?v=1.0.6"></script>
 </body>
 </html>
