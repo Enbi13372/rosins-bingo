@@ -1,6 +1,6 @@
 /**
  * Rosins Bingo Application Logic - Plain & Strict Ownership Edition
- * Real-Time Multiplayer Sync via PeerJS WebRTC (v1.0.8)
+ * Real-Time Multiplayer Sync via PeerJS WebRTC (v1.0.9)
  * New in v1.0.7: Drag & drop tile swapping, fixed-width dark mode button,
  *                scoreboard removed, and a critical fix that stopped joining
  *                players from wiping a running session with their empty board.
@@ -8,7 +8,7 @@
  *                shrink) and push the previous board back to every player.
  */
 
-const APP_VERSION = "1.0.8";
+const APP_VERSION = "1.0.9";
 
 const ROSIN_PRESETS = [
   "Frank meckert über Hygiene",
