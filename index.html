@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Rosins Bingo</title>
-  <link rel="stylesheet" href="style.css?v=1.0.6">
+  <link rel="stylesheet" href="style.css?v=1.0.8">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700;800&display=swap" rel="stylesheet">
@@ -40,9 +40,6 @@
           <span class="active-user-label">Ich bin:</span>
           <strong id="active-user-name">--</strong>
         </div>
-        <button id="btn-scoreboard" class="btn btn-secondary" title="Punktestand anzeigen">
-          Punkte
-        </button>
         <button id="btn-dark-mode" class="btn btn-secondary" title="Dunkelmodus umschalten">
           Dunkel
         </button>
@@ -58,6 +55,18 @@
 
   <!-- Main Plain White Content -->
   <main class="main-content">
+    <!-- Restore Point Bar: shown to the host while an undoable snapshot exists -->
+    <div id="restore-bar" class="restore-bar hidden">
+      <div class="restore-bar-info">
+        <strong class="restore-bar-title">Frühere Version verfügbar</strong>
+        <span id="restore-bar-text" class="restore-bar-text"></span>
+      </div>
+      <div class="restore-bar-actions">
+        <button id="btn-restore-previous" class="btn btn-sm btn-primary">Wiederherstellen</button>
+        <button id="btn-dismiss-restore" class="btn btn-sm btn-secondary">Verwerfen</button>
+      </div>
+    </div>
+
     <div class="boards-wrapper">
       <div id="boards-container" class="boards-container">
         <!-- Dynamic Bingo Boards -->
@@ -72,24 +81,6 @@
       </div>
     </div>
   </main>
-
-  <!-- Scoreboard Modal -->
-  <div id="modal-scoreboard" class="modal-overlay hidden">
-    <div class="modal-card">
-      <div class="modal-header">
-        <h3>Punktestand</h3>
-        <button class="modal-close" data-close="modal-scoreboard">&times;</button>
-      </div>
-      <div class="modal-body">
-        <div id="scoreboard-content" class="scoreboard-list">
-          <!-- Injected dynamically -->
-        </div>
-      </div>
-      <div class="modal-footer">
-        <button class="btn btn-primary" data-close="modal-scoreboard">Schließen</button>
-      </div>
-    </div>
-  </div>
 
   <!-- Join / Start New Room Session Modal -->
   <div id="modal-join-room" class="modal-overlay hidden">
@@ -208,6 +199,7 @@
       <div class="modal-body">
         <p>Möchtest du das gesamte Spiel wirklich zurücksetzen?</p>
         <p><small>Alle Spielfelder, Namen und Markierungen werden auf den Standardzustand (2 leere 4x4 Felder) zurückgesetzt.</small></p>
+        <p><small>Kein Risiko: Der aktuelle Spielstand wird vorher gesichert und kann danach wiederhergestellt werden.</small></p>
       </div>
       <div class="modal-footer">
         <button class="btn btn-secondary" data-close="modal-reset">Abbrechen</button>
@@ -244,9 +236,9 @@
 
   <!-- Footer Version Tag -->
   <footer class="app-footer">
-    <small>Rosins Bingo v1.0.6</small>
+    <small>Rosins Bingo v1.0.8</small>
   </footer>
 
-  <script src="app.js?v=1.0.6"></script>
+  <script src="app.js?v=1.0.8"></script>
 </body>
 </html>
