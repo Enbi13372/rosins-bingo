@@ -18,7 +18,6 @@
   --grid-size: 4;
   --header-bg: #ffffff;
   --modal-bg: #ffffff;
-  --scoreboard-row-bg: #f8fafc;
 }
 
 [data-theme="dark"] {
@@ -39,7 +38,6 @@
   --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.4);
   --header-bg: #1e293b;
   --modal-bg: #1e293b;
-  --scoreboard-row-bg: #0f172a;
 }
 
 * {
@@ -200,6 +198,55 @@ body {
   max-width: 1600px;
   width: 100%;
   margin: 0 auto;
+}
+
+/* Restore Point Bar */
+.restore-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  flex-wrap: wrap;
+  background: #fffbeb;
+  border: 1px solid #fcd34d;
+  border-left: 4px solid #f59e0b;
+  border-radius: 10px;
+  padding: 0.75rem 1rem;
+  margin-bottom: 1.5rem;
+}
+
+.restore-bar.hidden { display: none; }
+
+[data-theme="dark"] .restore-bar {
+  background: #3b2c08;
+  border-color: #a16207;
+  border-left-color: #f59e0b;
+}
+
+.restore-bar-info {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  min-width: 0;
+}
+
+.restore-bar-title {
+  font-size: 0.9rem;
+  font-weight: 700;
+  color: var(--text-main);
+}
+
+.restore-bar-text {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+}
+
+[data-theme="dark"] .restore-bar-text { color: #d6c9a1; }
+
+.restore-bar-actions {
+  display: flex;
+  gap: 0.5rem;
+  flex-shrink: 0;
 }
 
 .boards-wrapper {
@@ -449,6 +496,47 @@ body {
   background-color: rgba(254, 226, 226, 0.9);
 }
 
+/* Tile Drag & Drop (hold to pick up, drop on another tile to swap) */
+.bingo-tile { touch-action: manipulation; }
+
+body.is-dragging-tile { cursor: grabbing; user-select: none; }
+/* Suppress touch scrolling only while a tile is actually in hand. */
+body.is-dragging-tile .bingo-tile { touch-action: none; cursor: grabbing; }
+
+.bingo-tile.tile-drag-source {
+  opacity: 0.3;
+  border-style: dashed;
+  border-color: var(--accent-primary);
+}
+.bingo-tile.tile-drag-source::before,
+.bingo-tile.tile-drag-source::after { display: none; }
+
+.bingo-tile.tile-drop-target {
+  border-color: var(--accent-primary);
+  box-shadow: inset 0 0 0 2px var(--accent-primary);
+  transform: scale(1.04);
+}
+
+.bingo-tile.tile-drag-ghost {
+  position: fixed;
+  z-index: 2000;
+  margin: 0;
+  pointer-events: none;
+  opacity: 0.94;
+  transform: rotate(-2deg) scale(1.05);
+  background-color: var(--bg-card);
+  border-color: var(--accent-primary);
+  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.3);
+}
+
+.drag-hint {
+  font-size: 0.7rem;
+  color: var(--text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 /* Add Board Section */
 .add-board-section {
   display: flex;
@@ -541,70 +629,6 @@ body {
   justify-content: flex-end;
   gap: 0.5rem;
   border-top: 1px solid var(--border-light);
-}
-
-/* Scoreboard */
-.scoreboard-list {
-  display: flex;
-  flex-direction: column;
-  gap: 0.5rem;
-}
-
-.scoreboard-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  background: var(--scoreboard-row-bg);
-  border: 1px solid var(--border-light);
-  border-radius: 8px;
-  padding: 0.6rem 1rem;
-  gap: 1rem;
-}
-
-.scoreboard-name {
-  font-weight: 700;
-  font-size: 0.95rem;
-}
-
-.scoreboard-name.is-me::after {
-  content: " (Du)";
-  font-weight: 400;
-  color: var(--text-muted);
-  font-size: 0.8rem;
-}
-
-.scoreboard-stats {
-  display: flex;
-  gap: 1.25rem;
-  font-size: 0.85rem;
-  color: var(--text-muted);
-}
-
-.scoreboard-stat {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 1px;
-}
-
-.scoreboard-stat strong {
-  font-size: 1.1rem;
-  color: var(--text-main);
-  font-weight: 700;
-}
-
-.scoreboard-stat span {
-  font-size: 0.7rem;
-  text-transform: uppercase;
-  letter-spacing: 0.03em;
-  color: var(--text-muted);
-}
-
-.scoreboard-empty {
-  text-align: center;
-  color: var(--text-muted);
-  padding: 1rem 0;
-  font-size: 0.9rem;
 }
 
 /* Franky Selection Grid */
@@ -723,7 +747,12 @@ body {
   background: var(--header-bg);
 }
 
-/* Dark mode toggle label change */
+/* Dark mode toggle. The label swaps between "Dunkel" and "Hell", so the width
+   is pinned to keep the button (and the buttons next to it) from jumping. */
+#btn-dark-mode {
+  min-width: 6rem;
+  justify-content: center;
+}
 [data-theme="dark"] #btn-dark-mode { color: #fbbf24; border-color: #fbbf24; }
 
 /* Responsive */
@@ -733,4 +762,8 @@ body {
   .header-logo { max-height: 110px; }
   .boards-container { grid-template-columns: 1fr; }
   .header-controls { justify-content: center; }
+}
+
+@media (max-width: 520px) {
+  .drag-hint { display: none; }
 }
