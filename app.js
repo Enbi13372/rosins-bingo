@@ -59,7 +59,13 @@ const FRANKY_IMAGES = [
   { name: "Frank sprachlos", file: "assets/franky/Frank sprachlos.webp" },
   { name: "Frank sympathisch", file: "assets/franky/Frank sympathisch.webp" },
   { name: "Frank todesanzeige", file: "assets/franky/Frank todesanzeige.webp" },
-  { name: "Frank verführerisch", file: "assets/franky/Frank verführerisch.jpg" }
+  { name: "Frank verführerisch", file: "assets/franky/Frank verführerisch.jpg" },
+  { name: "Frank wird von Magier beeindruckt", file: "assets/franky/Frank wird von Magier beeindruckt.webp" },
+  { name: "Frank döner", file: "assets/franky/Frank döner.jpg" },
+  { name: "Frank schöner Tag am See", file: "assets/franky/Frank schöner Tag am See.avif" },
+  { name: "Frank erklärt", file: "assets/franky/Frank erklärt.jpg" },
+  { name: "Frank der retter", file: "assets/franky/Frank der retter.jpg" },
+  { name: "Kräuterfrank", file: "assets/franky/Kräuterfrank.jpg" }
 ];
 
 // Shared network state. `rev` is a monotonic revision counter owned by the host:
